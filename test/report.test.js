@@ -44,7 +44,7 @@ test('報告：その時間に起きたこと（追加・期限変更・完了�
     '【期限変更】内装の見積もり：11/12→11/18',
     '【完了】保健所に連絡',
     '【削除】古い用件',
-    'いまの期限：期限切れ1件・今日1件',
+    '本日まで：2件　翌日まで：2件　3日以内：2件',
   ]);
   assert.deepEqual(report.itemIds, ['a', 'b', 'c']);
 });
@@ -73,17 +73,17 @@ test('報告：動きがなければ、そう伝える', async () => {
   assert.deepEqual(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'evening'),
     { title: '夕方の報告：動きはありません', body: '本日まで：0件　翌日まで：0件　3日以内：0件',
       lines: ['本日まで：0件　翌日まで：0件　3日以内：0件'], itemIds: [] });
-  assert.equal(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'morning').body, '急ぎの期限もありません。');
+  assert.equal(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'morning').body, '本日まで：0件　翌日まで：0件　3日以内：0件');
   const withDeadline = R.buildReport([], [item('酒屋に電話', '2026-11-16')], TODAY, 'morning');
-  assert.equal(withDeadline.body, 'いまの期限：3日以内1件');
+  assert.equal(withDeadline.body, '本日まで：0件　翌日まで：0件　3日以内：1件');
 });
 
-test('報告：夕方は「本日まで／翌日まで／3日以内」を、0件でも出す', async () => {
+test('報告：期限は朝も夕方も「本日まで／翌日まで／3日以内」を、0件でも出す', async () => {
   const R = await load();
   const items = [item('切れ', '2026-11-10'), item('今日', '2026-11-14'), item('明日', '2026-11-15'),
     item('2日後', '2026-11-16'), item('3日後', '2026-11-17'), item('4日後', '2026-11-18'), item('期限なし', null)];
   assert.equal(R.buildReport([], items, TODAY, 'evening').body, '本日まで：2件　翌日まで：3件　3日以内：5件');
-  assert.equal(R.buildReport([], items, TODAY, 'morning').body, 'いまの期限：期限切れ1件・今日1件・3日以内3件');
+  assert.equal(R.buildReport([], items, TODAY, 'morning').body, '本日まで：2件　翌日まで：3件　3日以内：5件');
 });
 
 test('報告：多いときは通知を6件までにして、残りは件数で伝える（画面用は全部）', async () => {
@@ -91,9 +91,10 @@ test('報告：多いときは通知を6件までにして、残りは件数で�
   const many = Array.from({ length: 9 }, (_, i) => ev(`id${i}`, 'added', `用件${i}`));
   const report = R.buildReport(many, [], TODAY, 'morning');
   const lines = report.body.split('\n');
-  assert.equal(lines.length, 7);
+  assert.equal(lines.length, 8);
   assert.equal(lines[6], 'ほか 3件');
-  assert.equal(report.lines.length, 9);
+  assert.equal(lines[7], '本日まで：0件　翌日まで：0件　3日以内：0件');
+  assert.equal(report.lines.length, 10);
 });
 
 // 受け取る端末の側の手順（RFC 8291）で復号する
@@ -204,7 +205,7 @@ test('時刻の報告：朝10時台に1回だけ送り、ほかの時間には�
   const morning = await R.handle(post(), ENV, fetchImpl, new Date('2026-11-14T01:00:05Z'));
   assert.deepEqual(await morning.json(), { mode: 'schedule', slot: 'morning', sent: 1, failed: 0 });
   assert.deepEqual(state.pushes, [{
-    title: '朝の報告：追加1', body: '【追加】保健所に連絡（期限 11/14）\nいまの期限：今日1件', tag: 'morning', view: '2026-11-14-morning',
+    title: '朝の報告：追加1', body: '【追加】保健所に連絡（期限 11/14）\n本日まで：1件　翌日まで：1件　3日以内：1件', tag: 'morning', view: '2026-11-14-morning',
   }]);
   assert.match(state.eventQueries[0], /user_id=eq\.user-1&at=gte\.2026-11-13T08:00:00\.000Z&at=lt\.2026-11-14T01:00:00\.000Z/);
 

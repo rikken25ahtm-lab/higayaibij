@@ -114,31 +114,24 @@ function changeLine(change) {
   return `【${KIND_LABEL[change.kind]}】${name}`;
 }
 
-// 期限の近いものの件数を1行で。
-// 夕方は、明日の段取りがつくように「本日まで／翌日まで／3日以内」を、0件でも必ず出す。
-// どれも「その日までに期限が来るもの」の合計（期限切れを含み、前の区分と重ねて数える）。
-// 朝は「期限切れ／今日／3日以内」で、該当があるものだけ出す。なければ空文字
-function deadlineLine(items, todayKey, slot) {
+// 期限の近いものの件数を1行で。朝も夕方も同じ形で、0件でも必ず出す。
+// どれも「その日までに期限が来るもの」の合計（期限切れを含み、前の区分と重ねて数える）
+function deadlineLine(items, todayKey) {
   const open = items.filter((item) => item.status === 'open' && item.due);
-  const count = (test) => open.filter((item) => test(daysBetween(todayKey, item.due))).length;
-  if (slot === 'evening') {
-    return `本日まで：${count((d) => d <= 0)}件　翌日まで：${count((d) => d <= 1)}件　3日以内：${count((d) => d <= 3)}件`;
-  }
-  const parts = [['期限切れ', count((d) => d < 0)], ['今日', count((d) => d === 0)], ['3日以内', count((d) => d >= 1 && d <= 3)]];
-  const shown = parts.filter(([, n]) => n > 0).map(([label, n]) => `${label}${n}件`);
-  return shown.length ? `いまの期限：${shown.join('・')}` : '';
+  const count = (days) => open.filter((item) => daysBetween(todayKey, item.due) <= days).length;
+  return `本日まで：${count(0)}件　翌日まで：${count(1)}件　3日以内：${count(3)}件`;
 }
 
 // 時間内の記録と今の項目 → 通知の { title, body } と、画面で使う { lines, itemIds }
 export function buildReport(events, items, todayKey, slot) {
   const greeting = slot === 'evening' ? '夕方の報告' : slot === 'morning' ? '朝の報告' : '今の状況';
   const changes = summarizeEvents(events);
-  const deadline = deadlineLine(items, todayKey, slot);
+  const deadline = deadlineLine(items, todayKey);
 
   const lines = changes.map(changeLine);
   const shown = lines.slice(0, MAX_LINES);
   if (lines.length > MAX_LINES) shown.push(`ほか ${lines.length - MAX_LINES}件`);
-  if (deadline) shown.push(deadline);
+  shown.push(deadline);
 
   const counts = Object.keys(KIND_LABEL)
     .map((kind) => [kind, changes.filter((c) => c.kind === kind).length])
@@ -147,8 +140,8 @@ export function buildReport(events, items, todayKey, slot) {
 
   return {
     title: counts.length ? `${greeting}：${counts.join('・')}` : `${greeting}：動きはありません`,
-    body: shown.length ? shown.join('\n') : '急ぎの期限もありません。',
-    lines: deadline ? [...lines, deadline] : lines, // 画面では省略せずに全部出す
+    body: shown.join('\n'),
+    lines: [...lines, deadline], // 画面では省略せずに全部出す
     itemIds: changes.filter((c) => c.kind !== 'deleted').map((c) => c.itemId),
   };
 }

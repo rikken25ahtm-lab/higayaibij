@@ -104,7 +104,7 @@
         try {
           const report = await Store.viewReport(view);
           $('report-title').textContent = report.title;
-          $('report-lines').replaceChildren(...(report.lines.length ? report.lines : ['急ぎの期限もありません。']).map((line) => {
+          $('report-lines').replaceChildren(...report.lines.map((line) => {
             const li = document.createElement('li');
             li.textContent = line;
             return li;

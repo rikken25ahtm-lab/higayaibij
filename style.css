@@ -399,10 +399,7 @@ section.mail { margin-bottom: 24px; }
   .items > .item { transition: none !important; }
 }
 
-/* ---- AIにまとめてもらって追加：手順 ---- */
-.paste-lead { font-size: 0.9rem; margin-bottom: 8px; }
-.steps { margin: 0 0 12px; padding-left: 1.4em; display: grid; gap: 6px; font-size: 0.88rem; }
-.steps .eg { color: var(--muted); font-size: 0.82rem; }
+/* ---- AIにまとめてもらって追加 ---- */
 .paste .field { margin-top: 12px; }
 
 /* お知らせが細長く折り返さないように */

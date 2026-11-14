@@ -40,7 +40,9 @@
             : 'このブラウザは通知に対応していません。', 'none');
         }
         if (Notification.permission === 'denied') {
-          return show('通知が許可されていません。端末の「設定」→「通知」→「ひがやいびん」で許可してください。', 'none');
+          return show(isIOS
+            ? '通知が許可されていません。iPhone の「設定」→「通知」→「ひがやいびん」で許可してください。'
+            : '通知が許可されていません。アドレスバーの左にある印（鍵やつまみの形）を押し、「通知」を「許可」に変えてから、ページを読み込み直してください。', 'none');
         }
         registration = registration || await navigator.serviceWorker.register('sw.js');
         const sub = await registration.pushManager.getSubscription();

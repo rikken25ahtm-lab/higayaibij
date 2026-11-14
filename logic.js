@@ -150,6 +150,7 @@
 
   const PASTE_KEYS = [
     ['content', '内容|やること|タスク|タイトル|件名|用件'],
+    ['category', 'カテゴリー|カテゴリ|分類|ジャンル'],
     ['action', '必要な対応|対応|アクション|やり方'],
     ['progress', '進捗|状況|現状'],
     ['assignee', '誰に任せるか|担当者|担当|任せる人'],
@@ -158,7 +159,7 @@
   const PASTE_LINE = new RegExp(
     '^[\\s\\-・*●■◆#>]*(?:\\d+[.)）]\\s*)?[\\s*_【\\[「]*(' + PASTE_KEYS.map((k) => k[1]).join('|') + ')[\\s*_】\\]」]*[:：]\\s*(.*)$'
   );
-  const PASTE_LIMITS = { content: 200, action: 500, progress: 200, assignee: 50 };
+  const PASTE_LIMITS = { content: 200, category: 50, action: 500, progress: 200, assignee: 50 };
   const EMPTY_WORDS = /^(なし|無し|特になし|未定|不明|なし。|-|ー|―|—|n\/a|null)?$/i;
 
   // AI に決まった形で書いてもらった要約を、項目の候補に分ける。
@@ -169,7 +170,7 @@
     let last = null;
     const clean = (v) => v.replace(/[*_]+$/g, '').replace(/^[*_]+/g, '').replace(/^[（(](.*)[）)]$/, '$1').trim();
     const start = () => {
-      current = { content: '', action: '', progress: '', assignee: '', dueText: '' };
+      current = { content: '', category: '', action: '', progress: '', assignee: '', dueText: '' };
       items.push(current);
       last = null;
     };
@@ -181,10 +182,10 @@
       const m = line.match(PASTE_LINE);
       if (m) {
         const field = PASTE_KEYS.find((k) => new RegExp('^(' + k[1] + ')$').test(m[1]))[0];
-        if (!current || current[field] || (field === 'content' && (current.action || current.progress || current.assignee || current.dueText))) start();
+        if (!current || current[field] || (field === 'content' && (current.category || current.action || current.progress || current.assignee || current.dueText))) start();
         current[field] = clean(m[2]);
         last = field;
-      } else if (current && last && last !== 'dueText' && last !== 'assignee' && last !== 'content') {
+      } else if (current && last && last !== 'dueText' && last !== 'assignee' && last !== 'content' && last !== 'category') {
         current[last] += '\n' + line; // 対応・進捗の続きの行
       } else if (!current) {
         start();
@@ -212,7 +213,19 @@
         out.dueUnreadable = Boolean(dueText) && !out.due;
         return out;
       })
-      .filter((item) => item.content || item.action || item.progress || item.assignee || item.dueText);
+      .filter((item) => item.content || item.category || item.action || item.progress || item.assignee || item.dueText);
+  }
+
+  // ---- カテゴリ ----
+
+  // 項目についているカテゴリの一覧（名前の順。「① …」「② …」のように番号をつけておくと、その順に並ぶ）
+  function categoriesOf(items) {
+    return [...new Set(items.map((item) => (item.category || '').trim()).filter(Boolean))].sort();
+  }
+
+  // 絞り込み。filter が null なら全部、'' なら「カテゴリなし」だけ
+  function inCategory(item, filter) {
+    return filter == null || (item.category || '') === filter;
   }
 
   // ---- メールからの候補・添付のリンク ----
@@ -262,7 +275,7 @@
 
   const api = {
     toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, parsePaste, PROGRESS_CHOICES, normalizeProgress,
-    senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime,
+    senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;

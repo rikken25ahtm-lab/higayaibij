@@ -5,6 +5,7 @@ create table public.items (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
   content     text not null check (char_length(content) between 1 and 200),  -- 内容
+  category    text not null default '',                                      -- カテゴリ
   action      text not null default '',                                      -- 必要な対応
   progress    text not null default '',                                      -- 進捗
   assignee    text not null default '',                                      -- 誰に任せるか

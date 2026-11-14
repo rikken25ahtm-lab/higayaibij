@@ -66,12 +66,17 @@
       <form id="add-form" class="item-form" autocomplete="off">
         <label class="field">
           <span>内容</span>
-          <input name="content" type="text" required maxlength="200" placeholder="例：厨房機器の見積もりをとる" enterkeyhint="next">
+          <input name="content" type="text" required maxlength="200" placeholder="例：粗大ごみの回収を申し込む" enterkeyhint="next">
         </label>
         <div class="more">
           <label class="field">
+            <span>カテゴリ</span>
+            <select name="category"><option value="">（なし）</option></select>
+            <input name="categoryNew" type="text" maxlength="50" placeholder="例：家のこと" hidden>
+          </label>
+          <label class="field">
             <span>必要な対応</span>
-            <textarea name="action" rows="2" maxlength="500" placeholder="例：2社に電話して比較する"></textarea>
+            <textarea name="action" rows="2" maxlength="500" placeholder="例：市のサイトで日時を予約する"></textarea>
           </label>
           <label class="field">
             <span>進捗</span>
@@ -98,20 +103,25 @@
       <datalist id="assignees"></datalist>
 
       <details class="paste" id="paste">
-        <summary>AIの要約を貼り付けて追加</summary>
+        <summary>AIにまとめてもらって追加</summary>
+        <p class="paste-lead">やることを話し言葉のままAIに伝えて、まとめて追加できます。</p>
+        <ol class="steps">
+          <li>下の「お願い文をコピー」を押して、ChatGPT や Claude などのAIに貼り付けて送る（最初の1回だけ）</li>
+          <li>やることを、思いついたままAIに伝える（声で入力しても大丈夫）<br><span class="eg">例：「来週の金曜までに粗大ごみの予約。あと免許の更新、今月中に行かないと」</span></li>
+          <li>AIの返事をコピーして、下の欄に貼り付ける</li>
+        </ol>
+        <button type="button" class="btn" id="prompt-copy">お願い文をコピー</button>
+        <details class="prompt">
+          <summary>お願い文の中身を見る</summary>
+          <textarea id="prompt-text" rows="13" readonly></textarea>
+        </details>
         <label class="field">
-          <span>AIに整理してもらった文を、ここに貼り付けます</span>
-          <textarea id="paste-text" rows="6" placeholder="内容：厨房機器の見積もりをとる&#10;対応：2社に電話して比較する&#10;進捗：返事待ち&#10;担当：店長&#10;期限：2026-11-20"></textarea>
+          <span>AIの返事を、ここに貼り付けます</span>
+          <textarea id="paste-text" rows="6" placeholder="内容：粗大ごみの回収を申し込む&#10;カテゴリ：家のこと&#10;対応：市のサイトで日時を予約する&#10;進捗：まだ&#10;担当：自分&#10;期限：2026-11-20"></textarea>
         </label>
         <p class="paste-hint" id="paste-hint" hidden></p>
         <ul class="candidates" id="candidates"></ul>
         <button type="button" class="btn primary" id="paste-add" hidden></button>
-
-        <details class="prompt">
-          <summary>AIへのお願い文（最初に1回、AIに伝えておく）</summary>
-          <textarea id="prompt-text" rows="11" readonly></textarea>
-          <button type="button" class="btn" id="prompt-copy">お願い文をコピー</button>
-        </details>
       </details>
     </section>
 
@@ -122,6 +132,8 @@
       </section>
 
       <h2 id="list-title">やること <span class="count" id="open-count"></span></h2>
+      <div class="cats" id="cats" hidden role="group" aria-label="カテゴリで絞り込む"></div>
+      <p class="how" id="how">項目を押すと編集できます。削除は、左にスワイプするか、編集の中から。</p>
       <p class="empty" id="empty" hidden>まだ項目がありません。上のフォームから追加してください。</p>
       <ul class="items" id="open-list"></ul>
 

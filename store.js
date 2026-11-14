@@ -38,6 +38,7 @@
       const item = {
         id: newId(),
         content: fields.content,
+        category: fields.category || '',
         action: fields.action || '',
         progress: fields.progress || '',
         assignee: fields.assignee || '',

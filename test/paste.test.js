@@ -48,7 +48,7 @@ test('決まった形の要約を1件読む', () => {
   );
   assert.equal(rest.length, 0);
   assert.deepEqual(item, {
-    content: '厨房機器の見積もりをとる', action: '2社に電話して比較する', progress: '返事待ち',
+    content: '厨房機器の見積もりをとる', category: '', action: '2社に電話して比較する', progress: '返事待ち',
     assignee: '店長', due: '2026-11-20', dueText: '2026-11-20', dueUnreadable: false,
   });
 });
@@ -76,11 +76,11 @@ test('複数件、太字や箇条書きの飾り、半角コロン、「なし�
   // 前置きの1文は候補にしない
   assert.equal(items.length, 2);
   assert.deepEqual(items[0], {
-    content: '保健所に営業許可の申請', action: '必要書類をそろえて窓口へ', progress: '', assignee: '自分',
+    content: '保健所に営業許可の申請', category: '', action: '必要書類をそろえて窓口へ', progress: '', assignee: '自分',
     due: '2026-11-20', dueText: '来週の金曜', dueUnreadable: false,
   });
   assert.deepEqual(items[1], {
-    content: '看板のデザインを決める', action: '2案から選ぶ\nデザイナーに返事する', progress: '', assignee: '',
+    content: '看板のデザインを決める', category: '', action: '2案から選ぶ\nデザイナーに返事する', progress: '', assignee: '',
     due: null, dueText: '', dueUnreadable: false,
   });
 });
@@ -118,4 +118,18 @@ test('進捗は3択に寄せる', () => {
   assert.equal(p('書類は準備済み'), '書類は準備済み', 'どれにも当たらない文はそのまま');
   const [item] = L.parsePaste('内容：専用Botを完成させる\n進捗：これから着手', TODAY);
   assert.equal(item.progress, 'まだ');
+});
+
+test('カテゴリの行を読む。カテゴリで項目を分ける', () => {
+  const [a, b] = L.parsePaste('内容：粗大ごみの回収を申し込む\nカテゴリ：家のこと\n対応：市のサイトで予約\n\n内容：免許の更新\n分類：なし\n期限：11/30', TODAY);
+  assert.equal(a.category, '家のこと');
+  assert.equal(a.action, '市のサイトで予約');
+  assert.equal(b.category, '');
+  assert.equal(b.due, '2026-11-30');
+
+  const items = [{ category: '② 資金' }, { category: '① 物件' }, { category: '' }, { category: '⑩ 開店' }, { category: '① 物件' }, {}];
+  assert.deepEqual(L.categoriesOf(items), ['① 物件', '② 資金', '⑩ 開店']);
+  assert.equal(items.filter((i) => L.inCategory(i, null)).length, 6);
+  assert.equal(items.filter((i) => L.inCategory(i, '① 物件')).length, 2);
+  assert.equal(items.filter((i) => L.inCategory(i, '')).length, 2);
 });

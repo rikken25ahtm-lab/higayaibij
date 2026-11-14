@@ -6,6 +6,7 @@
     return {
       id: r.id,
       content: r.content,
+      category: r.category || '',
       action: r.action || '',
       progress: r.progress || '',
       assignee: r.assignee || '',
@@ -19,7 +20,7 @@
   }
 
   const COLUMNS = {
-    id: 'id', content: 'content', action: 'action', progress: 'progress', assignee: 'assignee', due: 'due',
+    id: 'id', content: 'content', category: 'category', action: 'action', progress: 'progress', assignee: 'assignee', due: 'due',
     status: 'status', priority: 'priority', attachments: 'attachments',
     createdAt: 'created_at', updatedAt: 'updated_at',
   };
@@ -41,10 +42,18 @@
   // 進捗が空なら今までどおり保存できるようにする。進捗に文字があるときは、黙って捨てずに失敗させる。
   async function send(row, run) {
     const result = await run(row);
-    if (result.error && result.error.code === 'PGRST204' && 'progress' in row && !row.progress) {
+    if (result.error && result.error.code === 'PGRST204') {
+      // 「カテゴリ」も同じ（supabase/add-category.sql が未実行）。空なら外して保存し、文字があるときは理由を伝える
       const rest = { ...row };
-      delete rest.progress;
-      return unwrap(await run(rest));
+      for (const column of ['progress', 'category']) {
+        if (column in rest && !rest[column]) delete rest[column];
+      }
+      if (rest.category) {
+        const error = new Error('カテゴリの列がまだありません');
+        error.userMessage = 'カテゴリを使うには、先に Supabase で supabase/add-category.sql を実行してください。';
+        throw error;
+      }
+      if (Object.keys(rest).length < Object.keys(row).length) return unwrap(await run(rest));
     }
     return unwrap(result);
   }
@@ -118,8 +127,8 @@
       },
 
       async add(fields) {
-        const { content, action, progress, assignee, due } = fields;
-        const row = toRow({ content, action, progress, assignee, due });
+        const { content, category, action, progress, assignee, due } = fields;
+        const row = toRow({ content, category: category || '', action, progress, assignee, due });
         if (fields.attachments && fields.attachments.length) row.attachments = fields.attachments;
         return fromRow(await send(row, (r) => table().insert(r).select().single()));
       },

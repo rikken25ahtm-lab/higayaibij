@@ -3,7 +3,7 @@
 
   const {
     toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
-    senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime,
+    senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
   } = window.Logic;
   const config = window.HIGAYAIBIN_CONFIG || {};
   const Store =
@@ -39,10 +39,69 @@
     return node;
   }
 
+  // ---- カテゴリ ----
+  const NEW_CATEGORY = '__new__'; // 選択肢「＋ 新しいカテゴリを作る」
+  const CATEGORY_KEY = 'higayaibin.category.v1';
+  let activeCategory = null; // 絞り込み中のカテゴリ。null は「すべて」、'' は「カテゴリなし」
+  try {
+    activeCategory = JSON.parse(localStorage.getItem(CATEGORY_KEY) || 'null');
+  } catch (e) {
+    activeCategory = null;
+  }
+
+  function setCategory(value) {
+    activeCategory = value;
+    try {
+      localStorage.setItem(CATEGORY_KEY, JSON.stringify(value));
+    } catch (e) { /* 覚えられなくても、絞り込みは動く */ }
+    editingId = null;
+    render();
+  }
+
+  // カテゴリの選択肢を入れる。いま選んでいる値は保つ
+  function fillCategories(select, value) {
+    const known = categoriesOf(items);
+    const list = value && value !== NEW_CATEGORY && !known.includes(value) ? [value, ...known] : known;
+    select.replaceChildren(
+      el('option', { value: '' }, '（なし）'),
+      ...list.map((c) => el('option', { value: c }, c)),
+      el('option', { value: NEW_CATEGORY }, '＋ 新しいカテゴリを作る')
+    );
+    select.value = value || '';
+  }
+
+  // 「＋ 新しいカテゴリを作る」を選んだら、名前を書く欄を出す
+  function wireCategory(select, input) {
+    const sync = () => {
+      const isNew = select.value === NEW_CATEGORY;
+      input.hidden = !isNew;
+      input.required = isNew;
+      return isNew;
+    };
+    select.addEventListener('change', () => {
+      if (sync()) input.focus();
+    });
+    sync();
+  }
+
+  function categoryField(value) {
+    const select = el('select', { name: 'category' });
+    const input = el('input', { name: 'categoryNew', type: 'text', maxlength: 50, placeholder: '例：家のこと', hidden: true });
+    fillCategories(select, value);
+    wireCategory(select, input);
+    return el('label', { class: 'field' }, el('span', null, 'カテゴリ'), select, input);
+  }
+
+  wireCategory(addForm.elements.category, addForm.elements.categoryNew);
+  let addCategoryChosen = false; // 追加フォームのカテゴリを、自分で選んだか
+  addForm.elements.category.addEventListener('change', () => { addCategoryChosen = true; });
+
   function readForm(form) {
     const data = new FormData(form);
+    const picked = String(data.get('category') || '');
     return {
       content: String(data.get('content') || '').trim(),
+      category: picked === NEW_CATEGORY ? String(data.get('categoryNew') || '').trim().slice(0, 50) : picked,
       action: String(data.get('action') || '').trim(),
       progress: String(data.get('progress') || '').trim(),
       assignee: String(data.get('assignee') || '').trim(),
@@ -58,8 +117,14 @@
 
   function render() {
     const today = toDateKey(new Date());
-    const open = sortOpen(items.filter((i) => i.status !== 'done'));
-    const done = sortDone(items.filter((i) => i.status === 'done'));
+    // なくなったカテゴリで絞り込んだままにしない
+    const categories = categoriesOf(items);
+    if (activeCategory !== null && !items.some((i) => inCategory(i, activeCategory))) activeCategory = null;
+    if (activeCategory === '' && !categories.length) activeCategory = null;
+    const shown = items.filter((i) => inCategory(i, activeCategory));
+    const open = sortOpen(shown.filter((i) => i.status !== 'done'));
+    const done = sortDone(shown.filter((i) => i.status === 'done'));
+    renderCategories(categories);
 
     openList.replaceChildren(...open.map((item) => renderItem(item, today)));
     doneList.replaceChildren(...done.map((item) => renderItem(item, today)));
@@ -67,7 +132,9 @@
     $('open-count').textContent = open.length ? `${open.length}件` : '';
     $('done-count').textContent = `${done.length}件`;
     $('empty').hidden = open.length > 0;
-    $('empty').textContent = done.length
+    $('empty').textContent = activeCategory !== null
+      ? 'このカテゴリに、残っているやることはありません。'
+      : done.length
       ? '残っているやることはありません。'
       : 'まだ項目がありません。上のフォームから追加してください。';
     doneBlock.hidden = done.length === 0;
@@ -93,6 +160,31 @@
     );
   }
 
+  // カテゴリで絞り込むボタン（数字は、残っているやることの件数）。カテゴリが1つもなければ出さない
+  function renderCategories(categories) {
+    const openItems = items.filter((i) => i.status !== 'done');
+    const chip = (label, value, count) =>
+      el('button', {
+        type: 'button',
+        class: 'cat-chip',
+        'aria-pressed': String(activeCategory === value),
+        onclick: () => setCategory(value),
+      }, label, el('span', { class: 'n' }, String(count)));
+    const none = openItems.filter((i) => !i.category).length;
+    $('cats').hidden = categories.length === 0;
+    $('cats').replaceChildren(
+      chip('すべて', null, openItems.length),
+      ...categories.map((c) => chip(c, c, openItems.filter((i) => i.category === c).length)),
+      ...(items.some((i) => !i.category) ? [chip('カテゴリなし', '', none)] : [])
+    );
+
+    // 追加フォームの選択肢。書きかけの選択は変えない
+    const select = addForm.elements.category;
+    // 自分で選んでいなければ、絞り込み中のカテゴリを最初から選んでおく
+    if (select.value !== NEW_CATEGORY) fillCategories(select, addCategoryChosen ? select.value : activeCategory || '');
+    updatePrompt(categories);
+  }
+
   // これまでに入力した担当者を候補に出す
   function renderAssignees() {
     const names = [...new Set(items.map((i) => i.assignee).filter(Boolean))];
@@ -105,9 +197,18 @@
     const isDone = item.status === 'done';
     const level = isDone ? 'none' : dueLevel(item.due, today);
 
-    return el(
+    const li = el(
       'li',
-      { class: `item ${isDone ? 'done' : level}${reportIds.has(item.id) ? ' reported' : ''}`, 'data-id': item.id },
+      {
+        class: `item ${isDone ? 'done' : level}${reportIds.has(item.id) ? ' reported' : ''}`,
+        'data-id': item.id,
+        onclick: (e) => {
+          if (e.currentTarget.dataset.swiped) return; // スワイプの直後
+          if (openSwipe) return closeSwipe();           // 「削除」が出ているときは、まず閉じる
+          if (e.target.closest('button, a')) return;
+          startEdit(item.id);
+        },
+      },
       el('button', {
         type: 'button',
         class: 'check',
@@ -125,18 +226,82 @@
           { class: 'meta' },
           item.due || !isDone ? el('span', { class: `due ${level}` }, dueLabel(item.due, today)) : null,
           item.progress && !isDone ? el('span', { class: 'progress' }, item.progress) : null,
-          item.assignee ? el('span', { class: 'assignee' }, `担当：${item.assignee}`) : null
+          item.assignee ? el('span', { class: 'assignee' }, `担当：${item.assignee}`) : null,
+          item.category && activeCategory === null ? el('span', { class: 'cat-tag' }, item.category) : null
         ),
         renderLinks(item.attachments)
       ),
-      el(
-        'div',
-        { class: 'tools' },
-        el('button', { type: 'button', class: 'btn small', onclick: () => startEdit(item.id) }, '編集'),
-        el('button', { type: 'button', class: 'btn small danger', onclick: () => removeItem(item) }, '削除')
-      )
+      // キーボードや読み上げで使う人のための「編集」（見た目には出さない。削除は編集の中にある）
+      el('button', { type: 'button', class: 'visually-hidden', onclick: () => startEdit(item.id) }, `「${item.content}」を編集`),
+      // 左にスワイプすると出てくる
+      el('button', { type: 'button', class: 'swipe-delete', tabindex: '-1', 'aria-hidden': 'true', onclick: () => removeItem(item) }, '削除')
     );
+    attachSwipe(li);
+    return li;
   }
+
+  // ---- 左にスワイプして「削除」を出す ----
+  const SWIPE_WIDTH = 92; // 出てくる「削除」の幅
+  let openSwipe = null;   // いま「削除」が出ている項目
+
+  function closeSwipe() {
+    if (!openSwipe) return;
+    openSwipe.style.transform = '';
+    openSwipe = null;
+  }
+
+  function attachSwipe(li) {
+    let x0 = 0;
+    let y0 = 0;
+    let dx = 0;
+    let base = 0;
+    let mode = null; // 'x'（横に動かしている）| 'y'（縦のスクロール）
+
+    li.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      if (openSwipe && openSwipe !== li) closeSwipe();
+      x0 = e.touches[0].clientX;
+      y0 = e.touches[0].clientY;
+      dx = 0;
+      mode = null;
+      base = openSwipe === li ? -SWIPE_WIDTH : 0;
+    }, { passive: true });
+
+    li.addEventListener('touchmove', (e) => {
+      dx = e.touches[0].clientX - x0;
+      const dy = e.touches[0].clientY - y0;
+      if (!mode) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        mode = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        if (mode === 'x') li.style.transition = 'none';
+      }
+      if (mode !== 'x') return;
+      li.style.transform = `translateX(${Math.max(-SWIPE_WIDTH - 20, Math.min(0, base + dx))}px)`;
+    }, { passive: true });
+
+    const end = () => {
+      if (mode !== 'x') return;
+      mode = null;
+      li.style.transition = '';
+      // 指を離したときに出る「クリック」で、編集が開かないようにする
+      li.dataset.swiped = '1';
+      setTimeout(() => { delete li.dataset.swiped; }, 400);
+      if (base + dx < -SWIPE_WIDTH / 2) {
+        li.style.transform = `translateX(${-SWIPE_WIDTH}px)`;
+        openSwipe = li;
+      } else {
+        li.style.transform = '';
+        if (openSwipe === li) openSwipe = null;
+      }
+    };
+    li.addEventListener('touchend', end);
+    li.addEventListener('touchcancel', end);
+  }
+
+  // 項目の外を押したら、「削除」をしまう
+  document.addEventListener('click', (e) => {
+    if (openSwipe && !openSwipe.contains(e.target)) closeSwipe();
+  });
 
   // 添付（ドライブ）とメールへのリンク。別のタブで開く
   function renderLinks(list) {
@@ -174,6 +339,7 @@
     due.value = values.due || '';
     return [
       field('内容', content),
+      categoryField(values.category || ''),
       field('必要な対応', action),
       field('進捗', progress),
       el('div', { class: 'field-row' }, field('誰に任せるか', assignee), field('期限', due)),
@@ -224,6 +390,7 @@
       el(
         'div',
         { class: 'form-actions' },
+        el('button', { type: 'button', class: 'btn danger delete-in-editor', onclick: () => removeItem(item) }, '削除'),
         el('button', { type: 'button', class: 'btn', onclick: cancelEdit }, 'やめる'),
         el('button', { type: 'submit', class: 'btn primary' }, '保存する')
       )
@@ -422,6 +589,9 @@
     if (!fields.content) return;
     await Store.add(fields);
     addForm.reset();
+    addCategoryChosen = false;
+    addForm.elements.categoryNew.hidden = true;
+    addForm.elements.categoryNew.required = false;
     addForm.classList.remove('expanded');
     await reload();
     addForm.elements.content.focus();
@@ -435,20 +605,28 @@
   const pasteAdd = $('paste-add');
   let candidates = [];
 
-  $('prompt-text').value = [
-    'これから話す用件を、やることリスト用に整理してください。',
-    '次の形だけで出力し、前置きや説明は書かないでください。',
-    'どの欄も、要点だけを短い言葉で書いてください。',
-    '用件が複数あるときは、1件ごとに空行で区切って、同じ形を繰り返してください。',
-    'わからない欄は「なし」と書いてください。',
-    '期限は「2026-11-20」のように、年-月-日の数字で書いてください。',
-    '',
-    '内容：（何をするか。15文字くらいまで）',
-    '対応：（次にやる行動を1つ。短く）',
-    '進捗：（「まだ」「途中」「返事待ち」のどれか1つ）',
-    '担当：（誰に任せるか）',
-    '期限：（年-月-日）',
-  ].join('\n');
+  // AIへのお願い文。いまあるカテゴリがあれば、その中から選んでもらう
+  function updatePrompt(categories) {
+    $('prompt-text').value = [
+      'これから伝える用件を、やることリスト用に整理してください。',
+      '次の形だけで出力し、前置きや説明は書かないでください。',
+      'どの欄も、要点だけを短い言葉で書いてください。',
+      '用件が複数あるときは、1件ごとに空行で区切って、同じ形を繰り返してください。',
+      'わからない欄は「なし」と書いてください。',
+      '期限は「2026-11-20」のように、年-月-日の数字で書いてください。',
+      categories.length
+        ? `カテゴリは、合うものがあれば次の中から選んでください：${categories.join('、')}`
+        : 'カテゴリは、大まかな分類を一言で書いてください（例：家のこと、仕事、手続き、買い物）。',
+      '',
+      '内容：（何をするか。15文字くらいまで）',
+      'カテゴリ：（大まかな分類を一言で）',
+      '対応：（次にやる行動を1つ。短く）',
+      '進捗：（「まだ」「途中」「返事待ち」のどれか1つ）',
+      '担当：（誰がやるか。自分なら「自分」）',
+      '期限：（年-月-日）',
+    ].join('\n');
+  }
+  updatePrompt([]);
 
   $('prompt-copy').addEventListener('click', async () => {
     const box = $('prompt-text');
@@ -475,6 +653,7 @@
           'li',
           { class: `candidate ${c.content ? '' : 'invalid'}` },
           el('p', { class: 'content' }, c.content || '「内容」がありません（この候補は追加されません）'),
+          row('カテゴリ', c.category),
           row('対応', c.action),
           row('進捗', c.progress),
           row('担当', c.assignee),
@@ -502,8 +681,8 @@
     const added = [];
     try {
       for (const c of ready) {
-        const { content, action, progress, assignee, due } = c;
-        added.push(await Store.add({ content, action, progress, assignee, due }));
+        const { content, category, action, progress, assignee, due } = c;
+        added.push(await Store.add({ content, category, action, progress, assignee, due }));
       }
       pasteText.value = '';
       renderCandidates();
@@ -537,7 +716,7 @@
   // 保存や読み込みに失敗したら、黙って進まずに知らせる
   window.addEventListener('unhandledrejection', (e) => {
     console.error(e.reason);
-    showToast('うまく保存・読み込みできませんでした。通信を確認してください。', null);
+    showToast((e.reason && e.reason.userMessage) || 'うまく保存・読み込みできませんでした。通信を確認してください。', null);
   });
 
   // ---- ログイン・新規登録・アカウントの切り替え（Supabase を使うときだけ） ----

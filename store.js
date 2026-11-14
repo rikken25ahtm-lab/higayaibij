@@ -32,7 +32,7 @@
       return readAll();
     },
 
-    // fields: { content, action, progress, assignee, due }
+    // fields: { content, action, progress, assignee, due, attachments }
     async add(fields) {
       const now = new Date().toISOString();
       const item = {
@@ -44,7 +44,7 @@
         due: fields.due || null, // 'YYYY-MM-DD'
         status: 'open', // 'open' | 'done'
         priority: null, // 後の段階で使う：'near'（直近）| 'mid'（中期）| 'last'（最後）
-        attachments: [], // 後の段階で使う：ドライブのリンク
+        attachments: fields.attachments || [], // ドライブのリンク [{ name, url }]
         createdAt: now,
         updatedAt: now,
       };

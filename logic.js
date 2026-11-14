@@ -215,7 +215,55 @@
       .filter((item) => item.content || item.action || item.progress || item.assignee || item.dueText);
   }
 
-  const api = { toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, parsePaste, PROGRESS_CHOICES, normalizeProgress };
+  // ---- メールからの候補・添付のリンク ----
+
+  // 「山田 太郎 <yamada@example.com>」→「山田 太郎」。名前がなければアドレスを出す
+  function senderName(sender) {
+    const text = String(sender || '').trim();
+    const match = text.match(/^(.*?)\s*<([^>]*)>$/);
+    if (!match) return text;
+    return match[1].replace(/^["']+|["']+$/g, '').trim() || match[2].trim();
+  }
+
+  // 件名の頭の「Re:」「Fwd:」などを取って、やることの「内容」の下書きにする
+  function cleanSubject(subject) {
+    return String(subject || '').replace(/^(\s*(re|fwd?|fw)\s*[:：]\s*)+/i, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  }
+
+  // リンクとして出してよいものだけを残す（https で始まるもの。名前がなければ「添付」）
+  function safeLinks(list) {
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((link) => link && typeof link.url === 'string' && /^https:\/\/[^\s]+$/.test(link.url))
+      .map((link) => ({ ...link, name: String(link.name || '').trim() || '添付', url: link.url }));
+  }
+
+  // 項目についているリンクに、新しいリンクを足す（同じリンクは重ねない）
+  function mergeLinks(current, added) {
+    const out = safeLinks(current);
+    for (const link of safeLinks(added)) {
+      if (!out.some((have) => have.url === link.url)) out.push(link);
+    }
+    return out;
+  }
+
+  // 候補 → やることにつけるリンク（保存した添付と、メールそのものへのリンク）
+  function candidateLinks(candidate) {
+    const mail = candidate.mailUrl ? [{ name: 'メールを開く', url: candidate.mailUrl, kind: 'mail' }] : [];
+    return safeLinks([...(candidate.attachments || []), ...mail]);
+  }
+
+  // 届いた時刻を「11/14 10:05」の形で（端末の時刻）
+  function mailTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  const api = {
+    toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, parsePaste, PROGRESS_CHOICES, normalizeProgress,
+    senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -1,7 +1,10 @@
 (function () {
   'use strict';
 
-  const { toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES } = window.Logic;
+  const {
+    toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
+    senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime,
+  } = window.Logic;
   const config = window.HIGAYAIBIN_CONFIG || {};
   const Store =
     config.supabaseUrl && config.supabaseKey ? window.createRemoteStore(config) : window.LocalStore;
@@ -14,7 +17,9 @@
   const toast = $('toast');
 
   let items = [];
+  let mails = []; // メールからの候補（まだ片づけていないもの）
   let editingId = null;
+  let mailEditingId = null; // 「やることに追加」を開いている候補
   let toastTimer = null;
   let undoAction = null;
   let reportIds = new Set(); // 開いている報告に出てくる項目（一覧で目印をつける）
@@ -46,7 +51,8 @@
   }
 
   async function reload() {
-    items = await Store.list();
+    [items, mails] = await Promise.all([Store.list(), Store.listCandidates ? Store.listCandidates() : []]);
+    if (!mails.some((m) => m.id === mailEditingId)) mailEditingId = null;
     render();
   }
 
@@ -65,6 +71,10 @@
       ? '残っているやることはありません。'
       : 'まだ項目がありません。上のフォームから追加してください。';
     doneBlock.hidden = done.length === 0;
+
+    $('mail').hidden = mails.length === 0;
+    $('mail-count').textContent = mails.length ? `${mails.length}件` : '';
+    $('mail-list').replaceChildren(...mails.map((mail) => (mail.id === mailEditingId ? renderMailEditor(mail, open) : renderMail(mail))));
 
     renderSummary(summarize(items, today));
     renderAssignees();
@@ -116,7 +126,8 @@
           item.due || !isDone ? el('span', { class: `due ${level}` }, dueLabel(item.due, today)) : null,
           item.progress && !isDone ? el('span', { class: 'progress' }, item.progress) : null,
           item.assignee ? el('span', { class: 'assignee' }, `担当：${item.assignee}`) : null
-        )
+        ),
+        renderLinks(item.attachments)
       ),
       el(
         'div',
@@ -127,12 +138,27 @@
     );
   }
 
-  function renderEditor(item) {
-    const field = (label, control) => el('label', { class: 'field' }, el('span', null, label), control);
+  // 添付（ドライブ）とメールへのリンク。別のタブで開く
+  function renderLinks(list) {
+    const links = safeLinks(list);
+    if (!links.length) return null;
+    return el(
+      'p',
+      { class: 'links' },
+      ...links.map((link) =>
+        el('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', class: link.kind === 'mail' ? 'mail-link' : 'file-link' }, link.name)
+      )
+    );
+  }
+
+  const field = (label, control) => el('label', { class: 'field' }, el('span', null, label), control);
+
+  // 内容・必要な対応・進捗・担当・期限の入力欄（編集と、メールからの追加で使う）
+  function itemFields(values) {
     const content = el('input', { name: 'content', type: 'text', required: true, maxlength: 200 });
     const action = el('textarea', { name: 'action', rows: 2, maxlength: 500 });
     // 3択になる前に自由に書いた進捗が残っている項目は、その文も選べるようにして消さない
-    const choices = PROGRESS_CHOICES.includes(item.progress) || !item.progress ? PROGRESS_CHOICES : [item.progress, ...PROGRESS_CHOICES];
+    const choices = PROGRESS_CHOICES.includes(values.progress) || !values.progress ? PROGRESS_CHOICES : [values.progress, ...PROGRESS_CHOICES];
     const progress = el(
       'select',
       { name: 'progress' },
@@ -141,11 +167,39 @@
     );
     const assignee = el('input', { name: 'assignee', type: 'text', maxlength: 50, list: 'assignees' });
     const due = el('input', { name: 'due', type: 'date' });
-    content.value = item.content;
-    action.value = item.action;
-    progress.value = item.progress || '';
-    assignee.value = item.assignee;
-    due.value = item.due || '';
+    content.value = values.content || '';
+    action.value = values.action || '';
+    progress.value = values.progress || '';
+    assignee.value = values.assignee || '';
+    due.value = values.due || '';
+    return [
+      field('内容', content),
+      field('必要な対応', action),
+      field('進捗', progress),
+      el('div', { class: 'field-row' }, field('誰に任せるか', assignee), field('期限', due)),
+    ];
+  }
+
+  function renderEditor(item) {
+    // 「外す」を押したリンクは、保存するときに項目から外す（ドライブのファイルやメールは消えない）
+    let kept = safeLinks(item.attachments);
+    const linkRows = kept.map((link) => {
+      const row = el(
+        'li',
+        null,
+        el('span', null, link.name),
+        el('button', {
+          type: 'button',
+          class: 'btn small',
+          'aria-label': `「${link.name}」のリンクを外す`,
+          onclick: () => {
+            kept = kept.filter((k) => k !== link);
+            row.remove();
+          },
+        }, '外す')
+      );
+      return row;
+    });
 
     const form = el(
       'form',
@@ -156,6 +210,7 @@
           e.preventDefault();
           const fields = readForm(form);
           if (!fields.content) return;
+          if (linkRows.length !== kept.length) fields.attachments = kept;
           await Store.update(item.id, fields);
           editingId = null;
           await reload();
@@ -164,10 +219,8 @@
           if (e.key === 'Escape') cancelEdit();
         },
       },
-      field('内容', content),
-      field('必要な対応', action),
-      field('進捗', progress),
-      el('div', { class: 'field-row' }, field('誰に任せるか', assignee), field('期限', due)),
+      ...itemFields(item),
+      linkRows.length ? el('div', { class: 'field' }, el('span', null, '添付・メールのリンク'), el('ul', { class: 'link-rows' }, ...linkRows)) : null,
       el(
         'div',
         { class: 'form-actions' },
@@ -176,6 +229,137 @@
       )
     );
     return el('li', { class: 'item editing', 'data-id': item.id }, form);
+  }
+
+  // ---- メールからの候補 ----
+  function mailHead(mail) {
+    return [
+      el('p', { class: 'meta' }, el('span', { class: 'sender' }, senderName(mail.sender) || '（差出人なし）'), el('span', { class: 'assignee' }, mailTime(mail.receivedAt))),
+      el('p', { class: 'content' }, mail.subject || '（件名なし）'),
+    ];
+  }
+
+  function renderMail(mail) {
+    return el(
+      'li',
+      { class: 'item mail', 'data-id': mail.id },
+      el(
+        'div',
+        { class: 'body' },
+        ...mailHead(mail),
+        mail.excerpt ? el('details', { class: 'excerpt' }, el('summary', null, '本文を見る'), el('p', null, mail.excerpt)) : null,
+        renderLinks(candidateLinks(mail))
+      ),
+      el(
+        'div',
+        { class: 'tools' },
+        el('button', { type: 'button', class: 'btn small', onclick: () => dismissMail(mail) }, '追加しない'),
+        el('button', { type: 'button', class: 'btn small strong', onclick: () => startMailEdit(mail.id) }, 'やることに追加')
+      )
+    );
+  }
+
+  // 候補を確認して、やることに追加する。新しい項目にするか、いまある項目にリンクだけつけるかを選べる
+  function renderMailEditor(mail, openItems) {
+    const links = candidateLinks(mail);
+    const target = el(
+      'select',
+      { name: 'target' },
+      el('option', { value: '' }, '新しいやることにする'),
+      ...openItems.map((item) => el('option', { value: item.id }, `「${item.content}」につける`))
+    );
+    const fields = el('div', { class: 'more' }, ...itemFields({ content: cleanSubject(mail.subject) }));
+    const submit = el('button', { type: 'submit', class: 'btn primary' }, '追加する');
+    target.addEventListener('change', () => {
+      const existing = Boolean(target.value);
+      fields.hidden = existing;
+      fields.querySelector('[name="content"]').required = !existing;
+      submit.textContent = existing ? 'リンクをつける' : '追加する';
+    });
+
+    const form = el(
+      'form',
+      {
+        class: 'item-form',
+        autocomplete: 'off',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          submit.disabled = true;
+          try {
+            await addFromMail(mail, target.value, readForm(form), links);
+          } finally {
+            submit.disabled = false;
+          }
+        },
+        onkeydown: (e) => {
+          if (e.key === 'Escape') cancelMailEdit();
+        },
+      },
+      ...mailHead(mail),
+      openItems.length ? field('追加のしかた', target) : null,
+      fields,
+      links.length ? el('div', { class: 'field' }, el('span', null, '項目につくリンク'), renderLinks(links)) : null,
+      el(
+        'div',
+        { class: 'form-actions' },
+        el('button', { type: 'button', class: 'btn', onclick: cancelMailEdit }, 'やめる'),
+        submit
+      )
+    );
+    return el('li', { class: 'item mail editing', 'data-id': mail.id }, form);
+  }
+
+  function startMailEdit(id) {
+    mailEditingId = id;
+    render();
+    const input = document.querySelector('.item.mail.editing input[name="content"]');
+    if (input) input.focus();
+  }
+
+  function cancelMailEdit() {
+    mailEditingId = null;
+    render();
+  }
+
+  async function addFromMail(mail, targetId, fields, links) {
+    let undo;
+    let message;
+    if (targetId) {
+      const item = items.find((i) => i.id === targetId);
+      if (!item) return;
+      const before = item.attachments || [];
+      await Store.update(item.id, { attachments: mergeLinks(before, links) });
+      await Store.resolveCandidate(mail.id, 'added', item.id);
+      message = 'リンクをつけました';
+      undo = async () => {
+        await Store.update(item.id, { attachments: before });
+        await Store.resolveCandidate(mail.id, 'new');
+      };
+    } else {
+      if (!fields.content) return;
+      const item = await Store.add({ ...fields, attachments: links });
+      await Store.resolveCandidate(mail.id, 'added', item.id);
+      message = 'やることに追加しました';
+      undo = async () => {
+        await Store.remove(item.id);
+        await Store.resolveCandidate(mail.id, 'new');
+      };
+    }
+    mailEditingId = null;
+    await reload();
+    showToast(message, async () => {
+      await undo();
+      await reload();
+    });
+  }
+
+  async function dismissMail(mail) {
+    await Store.resolveCandidate(mail.id, 'dismissed');
+    await reload();
+    showToast('候補から外しました', async () => {
+      await Store.resolveCandidate(mail.id, 'new');
+      await reload();
+    });
   }
 
   function startEdit(id) {
@@ -335,7 +519,7 @@
   });
 
   Store.onChange(() => {
-    if (!editingId && !$('main').hidden) reload();
+    if (!editingId && !mailEditingId && !$('main').hidden) reload();
   });
 
   // 開きっぱなしで日付が変わっても、期限の表示を正しく保つ
@@ -344,7 +528,7 @@
     const now = toDateKey(new Date());
     if (now !== lastDay) {
       lastDay = now;
-      if (!editingId) render();
+      if (!editingId && !mailEditingId) render();
     }
   }
   document.addEventListener('visibilitychange', refreshIfNewDay);
@@ -359,7 +543,9 @@
   // ---- ログイン（Supabase を使うときだけ） ----
   function showLogin() {
     items = [];
+    mails = [];
     editingId = null;
+    mailEditingId = null;
     $('main').hidden = true;
     $('summary').hidden = true;
     $('logout').hidden = true;
@@ -381,6 +567,7 @@
         reportIds = new Set(ids);
         await reload();
       });
+      window.MailLink.init(Store, showToast);
     }
   }
 

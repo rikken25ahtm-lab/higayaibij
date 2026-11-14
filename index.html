@@ -97,6 +97,11 @@
     </section>
 
     <section class="list-area" aria-labelledby="list-title">
+      <section class="mail" id="mail" hidden aria-labelledby="mail-title">
+        <h2 id="mail-title">メールからの候補 <span class="count" id="mail-count"></span></h2>
+        <ul class="items" id="mail-list"></ul>
+      </section>
+
       <h2 id="list-title">やること <span class="count" id="open-count"></span></h2>
       <p class="empty" id="empty" hidden>まだ項目がありません。上のフォームから追加してください。</p>
       <ul class="items" id="open-list"></ul>
@@ -116,6 +121,23 @@
       </div>
     </section>
     <button type="button" class="btn link notify-open" id="notify-open" hidden aria-controls="notify" aria-expanded="false">通知の設定</button>
+    <section class="panel notify" id="maillink" hidden aria-labelledby="maillink-title">
+      <h2 id="maillink-title">メールの連携</h2>
+      <p id="maillink-status" aria-live="polite">確認しています…</p>
+      <div class="notify-actions">
+        <button type="button" class="btn primary" id="maillink-create" hidden>合言葉を作る</button>
+        <button type="button" class="btn small" id="maillink-off" hidden>連携をやめる</button>
+      </div>
+      <div class="token-box" id="maillink-token-box" hidden>
+        <label class="field">
+          <span>合言葉（表示されるのは今だけです。人には見せないでください）</span>
+          <input id="maillink-token" type="text" readonly autocomplete="off">
+        </label>
+        <button type="button" class="btn" id="maillink-copy">合言葉をコピー</button>
+        <p>Apps Script の「プロジェクトの設定」→「スクリプト プロパティ」に、名前 <code>TOKEN</code> で貼り付けます。</p>
+      </div>
+    </section>
+    <button type="button" class="btn link notify-open" id="maillink-open" hidden aria-controls="maillink" aria-expanded="false">メールの連携の設定</button>
     <p class="note" id="local-note" hidden>いまは、この端末の中だけに保存しています（ほかの端末とは同期されません）。</p>
   </main>
 
@@ -130,6 +152,7 @@
   <script src="store.js"></script>
   <script src="supabase-store.js"></script>
   <script src="push.js"></script>
+  <script src="mail.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

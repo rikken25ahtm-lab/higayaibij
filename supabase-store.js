@@ -84,6 +84,7 @@
       async add(fields) {
         const { content, action, progress, assignee, due } = fields;
         const row = toRow({ content, action, progress, assignee, due });
+        if (fields.attachments && fields.attachments.length) row.attachments = fields.attachments;
         return fromRow(await send(row, (r) => table().insert(r).select().single()));
       },
 
@@ -129,6 +130,47 @@
       // 通知で届いた回の報告の中身（view は '2026-11-14-morning' の形、または 'now'）
       viewReport(view) {
         return postReport({ view });
+      },
+
+      // ---- メールとドライブの連携 ----
+      // まだ片づけていない候補（新しい順）。連携の準備がまだなら（表がなければ）0件として扱う
+      async listCandidates() {
+        const { data, error } = await client.from('mail_candidates').select('*').eq('status', 'new').order('received_at', { ascending: false });
+        if (error) {
+          console.warn('メールの候補を読めませんでした', error.message);
+          return [];
+        }
+        return data.map((r) => ({
+          id: r.id,
+          sender: r.sender || '',
+          subject: r.subject || '',
+          excerpt: r.excerpt || '',
+          mailUrl: r.mail_url || '',
+          attachments: r.attachments || [],
+          receivedAt: r.received_at,
+        }));
+      },
+
+      // 候補を片づける。status は 'added'（追加した）/ 'dismissed'（追加しない）/ 'new'（元に戻す）
+      async resolveCandidate(id, status, itemId) {
+        unwrap(await client.from('mail_candidates').update({ status, item_id: itemId || null }).eq('id', id));
+      },
+
+      // 連携の状態。準備がまだ（SQL を実行していない）なら null
+      async mailLink() {
+        const { data, error } = await client.from('mail_links').select('created_at,last_seen_at').maybeSingle();
+        if (error) return null;
+        return data ? { linked: true, createdAt: data.created_at, lastSeenAt: data.last_seen_at } : { linked: false };
+      },
+
+      // 合言葉を作る（作り直すと、前の合言葉は使えなくなる）
+      async createMailToken() {
+        return unwrap(await client.rpc('create_mail_token'));
+      },
+
+      async removeMailLink() {
+        const { data } = await client.auth.getSession();
+        unwrap(await client.from('mail_links').delete().eq('user_id', data.session.user.id));
       },
 
       // ---- ログイン ----

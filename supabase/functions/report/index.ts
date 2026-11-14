@@ -6,7 +6,7 @@
 //   POST …/report  + ログイン中の Authorization   本人の端末だけに、今の内容をすぐ送る（お試し用）
 //   POST …/report  + ログイン中の Authorization + { view }   その回の報告の中身を返す（通知から開いたページ用）
 //
-// 報告の中身は、その時間帯に起きたこと（追加・期限の変更・完了・削除）と、期限の近い件数。
+// 報告の中身は、その時間帯に起きたこと（追加・期限の変更・完了・削除）、届いたメールの要点、期限の近い件数。
 //
 // 型注釈を書いていないので、Node からもそのまま読み込んでテストできる。
 
@@ -122,13 +122,28 @@ function deadlineLine(items, todayKey) {
   return `本日まで：${count(0)}件　翌日まで：${count(1)}件　3日以内：${count(3)}件`;
 }
 
-// 時間内の記録と今の項目 → 通知の { title, body } と、画面で使う { lines, itemIds }
-export function buildReport(events, items, todayKey, slot) {
+// 「山田 太郎 <yamada@example.com>」→「山田 太郎」。名前がなければアドレスを出す
+export function senderName(sender) {
+  const text = String(sender || '').trim();
+  const match = text.match(/^(.*?)\s*<([^>]*)>$/);
+  if (!match) return text;
+  return match[1].replace(/^["']+|["']+$/g, '').trim() || match[2].trim();
+}
+
+// 届いたメールの要点：誰から・件名・添付の数
+function mailLine(mail) {
+  const from = clip(senderName(mail.sender), 12);
+  const count = Array.isArray(mail.attachments) ? mail.attachments.length : 0;
+  return `【メール】${from ? `${from}：` : ''}${clip(mail.subject, 22) || '（件名なし）'}${count ? `（添付${count}）` : ''}`;
+}
+
+// 時間内の記録・今の項目・時間内に届いたメール → 通知の { title, body } と、画面で使う { lines, itemIds }
+export function buildReport(events, items, todayKey, slot, mails = []) {
   const greeting = slot === 'evening' ? '夕方の報告' : slot === 'morning' ? '朝の報告' : '今の状況';
   const changes = summarizeEvents(events);
   const deadline = deadlineLine(items, todayKey);
 
-  const lines = changes.map(changeLine);
+  const lines = [...changes.map(changeLine), ...mails.map(mailLine)];
   const shown = lines.slice(0, MAX_LINES);
   if (lines.length > MAX_LINES) shown.push(`ほか ${lines.length - MAX_LINES}件`);
   shown.push(deadline);
@@ -137,6 +152,7 @@ export function buildReport(events, items, todayKey, slot) {
     .map((kind) => [kind, changes.filter((c) => c.kind === kind).length])
     .filter(([, n]) => n > 0)
     .map(([kind, n]) => `${KIND_LABEL[kind]}${n}`);
+  if (mails.length) counts.push(`メール${mails.length}`);
 
   return {
     title: counts.length ? `${greeting}：${counts.join('・')}` : `${greeting}：動きはありません`,
@@ -272,6 +288,15 @@ function createDb(url, serviceKey, fetchImpl = fetch) {
       return rest(`item_events?select=item_id,kind,content,old_due,new_due&user_id=eq.${userId}` +
         `&at=gte.${start.toISOString()}&at=lt.${end.toISOString()}&order=at.asc,id.asc`);
     },
+    // 時間内に届いたメールの候補。メールの連携をまだ設定していなければ（表がなければ）0件として扱う
+    async mails(userId, { start, end }) {
+      try {
+        return await rest(`mail_candidates?select=sender,subject,attachments&user_id=eq.${userId}` +
+          `&created_at=gte.${start.toISOString()}&created_at=lt.${end.toISOString()}&order=created_at.asc`);
+      } catch (_) {
+        return [];
+      }
+    },
     openItems(userId) {
       return rest(`items?select=content,progress,assignee,due,status&status=eq.open&user_id=eq.${userId}`);
     },
@@ -299,8 +324,8 @@ function json(data, status = 200) {
 }
 
 async function reportFor(db, userId, todayKey, slot, window) {
-  const [events, items] = await Promise.all([db.events(userId, window), db.openItems(userId)]);
-  return buildReport(events, items, todayKey, slot);
+  const [events, items, mails] = await Promise.all([db.events(userId, window), db.openItems(userId), db.mails(userId, window)]);
+  return buildReport(events, items, todayKey, slot, mails);
 }
 
 // 登録されている端末へ送る。userId を渡すと、その人の端末だけ

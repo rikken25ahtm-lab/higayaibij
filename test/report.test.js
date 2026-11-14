@@ -157,8 +157,8 @@ test('通知：端末の鍵で復号でき、署名も正しい', async () => {
 });
 
 // Supabase と通知の配信元の代わりをする、テスト用の fetch
-function fakeBackend(device, items, events = []) {
-  const state = { config: [], log: [], subs: [device.subscription], pushes: [], pushStatus: 201, eventQueries: [] };
+function fakeBackend(device, items, events = [], mails = []) {
+  const state = { config: [], log: [], subs: [device.subscription], pushes: [], pushStatus: 201, eventQueries: [], mailQueries: [] };
   const reply = (data, status = 200) => new Response(JSON.stringify(data), { status });
   const fetchImpl = async (url, init = {}) => {
     const method = init.method || 'GET';
@@ -186,6 +186,10 @@ function fakeBackend(device, items, events = []) {
     }
     if (path.startsWith('/rest/v1/item_events')) { state.eventQueries.push(path); return reply(events); }
     if (path.startsWith('/rest/v1/items')) return reply(items);
+    if (path.startsWith('/rest/v1/mail_candidates')) {
+      state.mailQueries.push(path);
+      return mails === null ? reply({ message: 'relation does not exist' }, 404) : reply(mails);
+    }
     throw new Error(`想定外の通信: ${method} ${url}`);
   };
   return { state, fetchImpl };
@@ -252,4 +256,42 @@ test('公開鍵は初回に作られ、2回目以降も同じ。無効になっ�
   const res = await R.handle(post({ Authorization: 'Bearer good-token' }), ENV, fetchImpl);
   assert.deepEqual(await res.json(), { mode: 'test', sent: 0, failed: 1 });
   assert.equal(state.subs.length, 0);
+});
+
+const mail = (sender, subject, attachments = []) => ({ sender, subject, attachments });
+
+test('報告：届いたメールの要点（誰から・件名・添付の数）を加える', async () => {
+  const R = await load();
+  assert.equal(R.senderName('山田 太郎 <yamada@example.com>'), '山田 太郎');
+  assert.equal(R.senderName('"山田工務店" <info@example.com>'), '山田工務店');
+  assert.equal(R.senderName('<info@example.com>'), 'info@example.com');
+  assert.equal(R.senderName('info@example.com'), 'info@example.com');
+
+  const report = R.buildReport(
+    [ev('a', 'added', '看板の発注')], [], TODAY, 'evening',
+    [mail('山田工務店 <info@example.com>', '内装工事のお見積り', [{ name: '見積書.pdf', url: 'https://drive.google.com/file/d/1/view' }]), mail('info@example.com', '')]
+  );
+  assert.equal(report.title, '夕方の報告：追加1・メール2');
+  assert.deepEqual(report.lines, [
+    '【追加】看板の発注',
+    '【メール】山田工務店：内装工事のお見積り（添付1）',
+    '【メール】info@exampl…：（件名なし）',
+    '本日まで：0件　翌日まで：0件　3日以内：0件',
+  ]);
+  assert.equal(R.buildReport([], [], TODAY, 'morning', [mail('a <a@example.com>', '件名')]).title, '朝の報告：メール1');
+});
+
+test('報告：メールは、その回の時間内に届いた候補だけを読む。連携の表がまだなくても報告は出る', async () => {
+  const R = await load();
+  const view = { view: '2026-11-13-evening' };
+  const at = new Date('2026-11-14T03:00:00Z');
+
+  const linked = fakeBackend(fakeDevice(), [], [], [mail('酒屋 <s@example.com>', '納品日のご連絡')]);
+  const res = await R.handle(post({ Authorization: 'Bearer good-token' }, view), ENV, linked.fetchImpl, at);
+  assert.deepEqual((await res.json()).lines, ['【メール】酒屋：納品日のご連絡', '本日まで：0件　翌日まで：0件　3日以内：0件']);
+  assert.match(linked.state.mailQueries[0], /user_id=eq\.user-1&created_at=gte\.2026-11-13T01:00:00\.000Z&created_at=lt\.2026-11-13T08:00:00\.000Z/);
+
+  const notYet = fakeBackend(fakeDevice(), [], [], null);
+  const res2 = await R.handle(post({ Authorization: 'Bearer good-token' }, view), ENV, notYet.fetchImpl, at);
+  assert.equal((await res2.json()).title, '夕方の報告：動きはありません');
 });

@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#1f3a5f">
   <meta name="robots" content="noindex">
   <title>ひがやいびん</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="ひがやいびん">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -98,6 +101,15 @@
         <ul class="items" id="done-list"></ul>
       </details>
     </section>
+    <section class="panel notify" id="notify" hidden aria-labelledby="notify-title">
+      <h2 id="notify-title">通知</h2>
+      <p id="notify-status" aria-live="polite">確認しています…</p>
+      <div class="notify-actions">
+        <button type="button" class="btn primary" id="notify-on" hidden>通知を受け取る</button>
+        <button type="button" class="btn" id="notify-test" hidden>今すぐ試しに送る</button>
+        <button type="button" class="btn small" id="notify-off" hidden>通知をやめる</button>
+      </div>
+    </section>
     <p class="note" id="local-note" hidden>いまは、この端末の中だけに保存しています（ほかの端末とは同期されません）。</p>
   </main>
 
@@ -111,6 +123,7 @@
   <script src="logic.js"></script>
   <script src="store.js"></script>
   <script src="supabase-store.js"></script>
+  <script src="push.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

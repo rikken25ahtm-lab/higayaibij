@@ -52,6 +52,14 @@
   root.createRemoteStore = function (config) {
     const client = root.supabase.createClient(config.supabaseUrl, config.supabaseKey);
     const table = () => client.from('items');
+    const subscriptions = () => client.from('push_subscriptions');
+    const reportUrl = `${config.supabaseUrl}/functions/v1/report`;
+
+    async function callReport(init) {
+      const response = await fetch(reportUrl, init);
+      if (!response.ok) throw new Error(`通知のプログラムが応答しません（${response.status}）`);
+      return response.json();
+    }
 
     return {
       remote: true,
@@ -84,6 +92,28 @@
       onChange(callback) {
         document.addEventListener('visibilitychange', () => {
           if (document.visibilityState === 'visible') callback();
+        });
+      },
+
+      // ---- 通知 ----
+      async pushPublicKey() {
+        return (await callReport({ headers: { apikey: config.supabaseKey } })).publicKey;
+      },
+
+      async savePushSubscription(sub) {
+        unwrap(await subscriptions().upsert({ endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth }));
+      },
+
+      async removePushSubscription(endpoint) {
+        unwrap(await subscriptions().delete().eq('endpoint', endpoint));
+      },
+
+      // ログイン中の本人の端末に、今の内容をすぐ送る
+      async sendTestReport() {
+        const { data } = await client.auth.getSession();
+        return callReport({
+          method: 'POST',
+          headers: { apikey: config.supabaseKey, Authorization: `Bearer ${data.session.access_token}` },
         });
       },
 

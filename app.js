@@ -365,6 +365,8 @@
     $('login').hidden = false;
   }
 
+  let notifyReady = false;
+
   async function showMain() {
     $('login').hidden = true;
     $('main').hidden = false;
@@ -372,6 +374,10 @@
     $('logout').hidden = !Store.remote;
     $('local-note').hidden = Store.remote;
     await reload();
+    if (!notifyReady) {
+      notifyReady = true;
+      window.Notify.init(Store, showToast);
+    }
   }
 
   $('login-form').addEventListener('submit', async (e) => {
@@ -391,7 +397,10 @@
     await showMain();
   });
 
-  $('logout').addEventListener('click', () => Store.signOut());
+  $('logout').addEventListener('click', async () => {
+    await window.Notify.beforeSignOut();
+    await Store.signOut();
+  });
 
   async function start() {
     if (!Store.remote) return showMain();

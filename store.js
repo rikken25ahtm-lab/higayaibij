@@ -1,6 +1,5 @@
-// 項目の保存。今はこの端末のブラウザ（localStorage）に1件ずつの配列として保存する。
-// すべて Promise を返すので、後で Supabase などに差し替えるときは
-// このファイルの中身だけを置き換えればよい（app.js は変更不要）。
+// 項目の保存（端末内版）。config.js が空のときに使う。
+// この端末のブラウザ（localStorage）に保存する。Supabase 版は supabase-store.js。
 (function (root) {
   'use strict';
 
@@ -26,7 +25,9 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
-  const Store = {
+  const LocalStore = {
+    remote: false,
+
     async list() {
       return readAll();
     },
@@ -80,5 +81,5 @@
     },
   };
 
-  root.Store = Store;
+  root.LocalStore = LocalStore;
 })(window);

@@ -2,7 +2,9 @@
   'use strict';
 
   const { toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize } = window.Logic;
-  const Store = window.Store;
+  const config = window.HIGAYAIBIN_CONFIG || {};
+  const Store =
+    config.supabaseUrl && config.supabaseKey ? window.createRemoteStore(config) : window.LocalStore;
 
   const $ = (id) => document.getElementById(id);
   const addForm = $('add-form');
@@ -200,6 +202,7 @@
   function showToast(text, undo) {
     $('toast-text').textContent = text;
     undoAction = undo;
+    $('toast-undo').hidden = !undo;
     toast.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(hideToast, 6000);
@@ -230,7 +233,9 @@
   // スマホでは一覧を上に見せたいので、「内容」に触れるまで残りの欄をたたんでおく
   addForm.addEventListener('focusin', () => addForm.classList.add('expanded'));
 
-  Store.onChange(reload);
+  Store.onChange(() => {
+    if (!editingId && !$('main').hidden) reload();
+  });
 
   // 開きっぱなしで日付が変わっても、期限の表示を正しく保つ
   let lastDay = toDateKey(new Date());
@@ -244,5 +249,56 @@
   document.addEventListener('visibilitychange', refreshIfNewDay);
   setInterval(refreshIfNewDay, 60000);
 
-  reload();
+  // 保存や読み込みに失敗したら、黙って進まずに知らせる
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error(e.reason);
+    showToast('うまく保存・読み込みできませんでした。通信を確認してください。', null);
+  });
+
+  // ---- ログイン（Supabase を使うときだけ） ----
+  function showLogin() {
+    items = [];
+    editingId = null;
+    $('main').hidden = true;
+    $('summary').hidden = true;
+    $('logout').hidden = true;
+    $('login').hidden = false;
+  }
+
+  async function showMain() {
+    $('login').hidden = true;
+    $('main').hidden = false;
+    $('summary').hidden = false;
+    $('logout').hidden = !Store.remote;
+    $('local-note').hidden = Store.remote;
+    await reload();
+  }
+
+  $('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const error = $('login-error');
+    error.hidden = true;
+    try {
+      await Store.signIn(form.elements.email.value.trim(), form.elements.password.value);
+    } catch (err) {
+      console.error(err);
+      error.textContent = 'ログインできませんでした。メールアドレスとパスワードを確認してください。';
+      error.hidden = false;
+      return;
+    }
+    form.reset();
+    await showMain();
+  });
+
+  $('logout').addEventListener('click', () => Store.signOut());
+
+  async function start() {
+    if (!Store.remote) return showMain();
+    Store.onSignedOut(showLogin);
+    if (await Store.isSignedIn()) return showMain();
+    showLogin();
+  }
+
+  start();
 })();

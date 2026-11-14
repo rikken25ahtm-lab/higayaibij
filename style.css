@@ -223,6 +223,14 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus
 }
 .toast[hidden] { display: none; }
 
+/* ---- ログイン・補足 ---- */
+.login { max-width: 400px; margin: 32px auto; width: calc(100% - 32px); }
+.error { color: var(--overdue); font-size: 0.9rem; }
+.note { color: var(--muted); font-size: 0.8rem; grid-column: 1 / -1; }
+.logout { background: transparent; color: var(--accent-text); border-color: color-mix(in srgb, var(--accent-text) 50%, transparent); }
+[hidden] { display: none !important; }
+.toast { white-space: normal; }
+
 /* ---- スマホ：内容に触れるまで残りの欄をたたむ ---- */
 @media (max-width: 859px) {
   #add-form:not(.expanded) .more,

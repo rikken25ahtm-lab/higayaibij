@@ -64,6 +64,23 @@
         <button type="submit" class="btn primary">追加する</button>
       </form>
       <datalist id="assignees"></datalist>
+
+      <details class="paste" id="paste">
+        <summary>AIの要約を貼り付けて追加</summary>
+        <label class="field">
+          <span>AIに整理してもらった文を、ここに貼り付けます</span>
+          <textarea id="paste-text" rows="6" placeholder="内容：厨房機器の見積もりをとる&#10;対応：2社に電話して比較する&#10;進捗：A社は返事待ち&#10;担当：店長&#10;期限：2026-11-20"></textarea>
+        </label>
+        <p class="paste-hint" id="paste-hint" hidden></p>
+        <ul class="candidates" id="candidates"></ul>
+        <button type="button" class="btn primary" id="paste-add" hidden></button>
+
+        <details class="prompt">
+          <summary>AIへのお願い文（最初に1回、AIに伝えておく）</summary>
+          <textarea id="prompt-text" rows="11" readonly></textarea>
+          <button type="button" class="btn" id="prompt-copy">お願い文をコピー</button>
+        </details>
+      </details>
     </section>
 
     <section class="list-area" aria-labelledby="list-title">

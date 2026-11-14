@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize } = window.Logic;
+  const { toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste } = window.Logic;
   const config = window.HIGAYAIBIN_CONFIG || {};
   const Store =
     config.supabaseUrl && config.supabaseKey ? window.createRemoteStore(config) : window.LocalStore;
@@ -237,6 +237,93 @@
 
   // スマホでは一覧を上に見せたいので、「内容」に触れるまで残りの欄をたたんでおく
   addForm.addEventListener('focusin', () => addForm.classList.add('expanded'));
+
+  // ---- AIの要約を貼り付けて追加 ----
+  const pasteText = $('paste-text');
+  const pasteAdd = $('paste-add');
+  let candidates = [];
+
+  $('prompt-text').value = [
+    'これから話す用件を、やることリスト用に整理してください。',
+    '次の形だけで出力し、前置きや説明は書かないでください。',
+    '用件が複数あるときは、1件ごとに空行で区切って、同じ形を繰り返してください。',
+    'わからない欄は「なし」と書いてください。',
+    '期限は「2026-11-20」のように、年-月-日の数字で書いてください。',
+    '',
+    '内容：（何をするかを短く1行で）',
+    '対応：（そのために必要な行動）',
+    '進捗：（今の状況）',
+    '担当：（誰に任せるか）',
+    '期限：（年-月-日）',
+  ].join('\n');
+
+  $('prompt-copy').addEventListener('click', async () => {
+    const box = $('prompt-text');
+    try {
+      await navigator.clipboard.writeText(box.value);
+      showToast('お願い文をコピーしました', null);
+    } catch (err) {
+      // コピーが許可されていない環境：選択した状態にして、手でコピーしてもらう
+      box.focus();
+      box.select();
+      showToast('文を選択しました。そのままコピーしてください。', null);
+    }
+  });
+
+  function renderCandidates() {
+    const today = toDateKey(new Date());
+    candidates = parsePaste(pasteText.value, today);
+    const ready = candidates.filter((c) => c.content);
+    const row = (label, value, cls) => (value ? el('p', { class: cls || '' }, el('span', null, label), value) : null);
+
+    $('candidates').replaceChildren(
+      ...candidates.map((c) =>
+        el(
+          'li',
+          { class: `candidate ${c.content ? '' : 'invalid'}` },
+          el('p', { class: 'content' }, c.content || '「内容」がありません（この候補は追加されません）'),
+          row('対応', c.action),
+          row('進捗', c.progress),
+          row('担当', c.assignee),
+          c.due ? row('期限', dueLabel(c.due, today)) : null,
+          c.dueUnreadable
+            ? el('p', { class: 'warn' }, `期限「${c.dueText}」は日付として読めませんでした。期限なしで追加されます。`)
+            : null
+        )
+      )
+    );
+
+    const hint = $('paste-hint');
+    hint.hidden = !(pasteText.value.trim() && candidates.length === 0);
+    hint.textContent = '項目を読み取れませんでした。「内容：…」の形になっているか確認してください。';
+    pasteAdd.hidden = ready.length === 0;
+    pasteAdd.textContent = `この${ready.length}件を追加する`;
+  }
+
+  pasteText.addEventListener('input', renderCandidates);
+
+  pasteAdd.addEventListener('click', async () => {
+    const ready = candidates.filter((c) => c.content);
+    if (!ready.length) return;
+    pasteAdd.disabled = true;
+    const added = [];
+    try {
+      for (const c of ready) {
+        const { content, action, progress, assignee, due } = c;
+        added.push(await Store.add({ content, action, progress, assignee, due }));
+      }
+      pasteText.value = '';
+      renderCandidates();
+      $('paste').open = false;
+    } finally {
+      pasteAdd.disabled = false;
+      await reload();
+    }
+    showToast(`${added.length}件を追加しました`, async () => {
+      for (const item of added) await Store.remove(item.id);
+      await reload();
+    });
+  });
 
   Store.onChange(() => {
     if (!editingId && !$('main').hidden) reload();

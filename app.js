@@ -231,7 +231,7 @@
         ),
         renderLinks(item.attachments)
       ),
-      // キーボードや読み上げで使う人のための「編集」（見た目には出さない）
+      // キーボードや読み上げで使う人のための「編集」（見た目には出さない。削除は編集の中にある）
       el('button', { type: 'button', class: 'visually-hidden', onclick: () => startEdit(item.id) }, `「${item.content}」を編集`),
       // 左にスワイプすると出てくる
       el('button', { type: 'button', class: 'swipe-delete', tabindex: '-1', 'aria-hidden': 'true', onclick: () => removeItem(item) }, '削除')
@@ -390,6 +390,7 @@
       el(
         'div',
         { class: 'form-actions' },
+        el('button', { type: 'button', class: 'btn danger delete-in-editor', onclick: () => removeItem(item) }, '削除'),
         el('button', { type: 'button', class: 'btn', onclick: cancelEdit }, 'やめる'),
         el('button', { type: 'submit', class: 'btn primary' }, '保存する')
       )

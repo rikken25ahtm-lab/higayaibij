@@ -44,7 +44,7 @@ test('報告：その時間に起きたこと（追加・期限変更・完了�
     '【期限変更】内装の見積もり：11/12→11/18',
     '【完了】保健所に連絡',
     '【削除】古い用件',
-    'いまの期限：期限切れ1・今日1',
+    'いまの期限：期限切れ1件・今日1件',
   ]);
   assert.deepEqual(report.itemIds, ['a', 'b', 'c']);
 });
@@ -73,7 +73,15 @@ test('報告：動きがなければ、そう伝える', async () => {
   assert.deepEqual(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'evening'),
     { title: '夕方の報告：動きはありません', body: '急ぎの期限もありません。', lines: [], itemIds: [] });
   const withDeadline = R.buildReport([], [item('酒屋に電話', '2026-11-16')], TODAY, 'morning');
-  assert.equal(withDeadline.body, 'いまの期限：3日以内1');
+  assert.equal(withDeadline.body, 'いまの期限：3日以内1件');
+});
+
+test('報告：夕方は「翌日まで」と「3日以内」で数える', async () => {
+  const R = await load();
+  const items = [item('切れ', '2026-11-10'), item('今日', '2026-11-14'), item('明日', '2026-11-15'),
+    item('2日後', '2026-11-16'), item('3日後', '2026-11-17'), item('4日後', '2026-11-18'), item('期限なし', null)];
+  assert.equal(R.buildReport([], items, TODAY, 'evening').body, 'いまの期限：翌日まで3件・3日以内2件');
+  assert.equal(R.buildReport([], items, TODAY, 'morning').body, 'いまの期限：期限切れ1件・今日1件・3日以内3件');
 });
 
 test('報告：多いときは通知を6件までにして、残りは件数で伝える（画面用は全部）', async () => {
@@ -194,7 +202,7 @@ test('時刻の報告：朝10時台に1回だけ送り、ほかの時間には�
   const morning = await R.handle(post(), ENV, fetchImpl, new Date('2026-11-14T01:00:05Z'));
   assert.deepEqual(await morning.json(), { mode: 'schedule', slot: 'morning', sent: 1, failed: 0 });
   assert.deepEqual(state.pushes, [{
-    title: '朝の報告：追加1', body: '【追加】保健所に連絡（期限 11/14）\nいまの期限：今日1', tag: 'morning', view: '2026-11-14-morning',
+    title: '朝の報告：追加1', body: '【追加】保健所に連絡（期限 11/14）\nいまの期限：今日1件', tag: 'morning', view: '2026-11-14-morning',
   }]);
   assert.match(state.eventQueries[0], /user_id=eq\.user-1&at=gte\.2026-11-13T08:00:00\.000Z&at=lt\.2026-11-14T01:00:00\.000Z/);
 

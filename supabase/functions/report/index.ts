@@ -114,27 +114,23 @@ function changeLine(change) {
   return `【${KIND_LABEL[change.kind]}】${name}`;
 }
 
-// 期限の近いものの件数を1行で。なければ空文字
-function deadlineLine(items, todayKey) {
-  const counts = { overdue: 0, today: 0, soon: 0 };
-  for (const item of items) {
-    if (item.status !== 'open') continue;
-    const level = dueLevel(item.due, todayKey);
-    if (level in counts) counts[level]++;
-  }
-  const parts = [
-    counts.overdue && `期限切れ${counts.overdue}`,
-    counts.today && `今日${counts.today}`,
-    counts.soon && `3日以内${counts.soon}`,
-  ].filter(Boolean);
-  return parts.length ? `いまの期限：${parts.join('・')}` : '';
+// 期限の近いものの件数を1行で。なければ空文字。
+// 夕方は、明日の段取りがつくように「翌日まで（期限切れ・今日・明日）」と「3日以内（2〜3日後）」で数える
+function deadlineLine(items, todayKey, slot) {
+  const open = items.filter((item) => item.status === 'open' && item.due);
+  const count = (test) => open.filter((item) => test(daysBetween(todayKey, item.due))).length;
+  const parts = slot === 'evening'
+    ? [['翌日まで', count((d) => d <= 1)], ['3日以内', count((d) => d >= 2 && d <= 3)]]
+    : [['期限切れ', count((d) => d < 0)], ['今日', count((d) => d === 0)], ['3日以内', count((d) => d >= 1 && d <= 3)]];
+  const shown = parts.filter(([, n]) => n > 0).map(([label, n]) => `${label}${n}件`);
+  return shown.length ? `いまの期限：${shown.join('・')}` : '';
 }
 
 // 時間内の記録と今の項目 → 通知の { title, body } と、画面で使う { lines, itemIds }
 export function buildReport(events, items, todayKey, slot) {
   const greeting = slot === 'evening' ? '夕方の報告' : slot === 'morning' ? '朝の報告' : '今の状況';
   const changes = summarizeEvents(events);
-  const deadline = deadlineLine(items, todayKey);
+  const deadline = deadlineLine(items, todayKey, slot);
 
   const lines = changes.map(changeLine);
   const shown = lines.slice(0, MAX_LINES);

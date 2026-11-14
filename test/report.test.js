@@ -71,16 +71,18 @@ test('報告：項目ごとに、結局どうなったかだけを伝える', as
 test('報告：動きがなければ、そう伝える', async () => {
   const R = await load();
   assert.deepEqual(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'evening'),
-    { title: '夕方の報告：動きはありません', body: '急ぎの期限もありません。', lines: [], itemIds: [] });
+    { title: '夕方の報告：動きはありません', body: '本日まで：0件　翌日まで：0件　3日以内：0件',
+      lines: ['本日まで：0件　翌日まで：0件　3日以内：0件'], itemIds: [] });
+  assert.equal(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'morning').body, '急ぎの期限もありません。');
   const withDeadline = R.buildReport([], [item('酒屋に電話', '2026-11-16')], TODAY, 'morning');
   assert.equal(withDeadline.body, 'いまの期限：3日以内1件');
 });
 
-test('報告：夕方は「翌日まで」と「3日以内」で数える', async () => {
+test('報告：夕方は「本日まで／翌日まで／3日以内」を、0件でも出す', async () => {
   const R = await load();
   const items = [item('切れ', '2026-11-10'), item('今日', '2026-11-14'), item('明日', '2026-11-15'),
     item('2日後', '2026-11-16'), item('3日後', '2026-11-17'), item('4日後', '2026-11-18'), item('期限なし', null)];
-  assert.equal(R.buildReport([], items, TODAY, 'evening').body, 'いまの期限：翌日まで3件・3日以内2件');
+  assert.equal(R.buildReport([], items, TODAY, 'evening').body, '本日まで：2件　翌日まで：3件　3日以内：5件');
   assert.equal(R.buildReport([], items, TODAY, 'morning').body, 'いまの期限：期限切れ1件・今日1件・3日以内3件');
 });
 
@@ -232,7 +234,7 @@ test('通知から開いたページ用：その回の報告を返すだけで�
   const R = await load();
   const { state, fetchImpl } = fakeBackend(fakeDevice(), [], [ev('a', 'added', '看板の発注')]);
   const res = await R.handle(post({ Authorization: 'Bearer good-token' }, { view: '2026-11-13-evening' }), ENV, fetchImpl, new Date('2026-11-14T03:00:00Z'));
-  assert.deepEqual(await res.json(), { mode: 'view', title: '夕方の報告：追加1', lines: ['【追加】看板の発注'], itemIds: ['a'] });
+  assert.deepEqual(await res.json(), { mode: 'view', title: '夕方の報告：追加1', lines: ['【追加】看板の発注', '本日まで：0件　翌日まで：0件　3日以内：0件'], itemIds: ['a'] });
   assert.match(state.eventQueries[0], /at=gte\.2026-11-13T01:00:00\.000Z&at=lt\.2026-11-13T08:00:00\.000Z/);
   assert.equal(state.pushes.length, 0);
 });

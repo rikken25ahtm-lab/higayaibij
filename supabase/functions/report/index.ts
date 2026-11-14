@@ -114,14 +114,17 @@ function changeLine(change) {
   return `【${KIND_LABEL[change.kind]}】${name}`;
 }
 
-// 期限の近いものの件数を1行で。なければ空文字。
-// 夕方は、明日の段取りがつくように「翌日まで（期限切れ・今日・明日）」と「3日以内（2〜3日後）」で数える
+// 期限の近いものの件数を1行で。
+// 夕方は、明日の段取りがつくように「本日まで／翌日まで／3日以内」を、0件でも必ず出す。
+// どれも「その日までに期限が来るもの」の合計（期限切れを含み、前の区分と重ねて数える）。
+// 朝は「期限切れ／今日／3日以内」で、該当があるものだけ出す。なければ空文字
 function deadlineLine(items, todayKey, slot) {
   const open = items.filter((item) => item.status === 'open' && item.due);
   const count = (test) => open.filter((item) => test(daysBetween(todayKey, item.due))).length;
-  const parts = slot === 'evening'
-    ? [['翌日まで', count((d) => d <= 1)], ['3日以内', count((d) => d >= 2 && d <= 3)]]
-    : [['期限切れ', count((d) => d < 0)], ['今日', count((d) => d === 0)], ['3日以内', count((d) => d >= 1 && d <= 3)]];
+  if (slot === 'evening') {
+    return `本日まで：${count((d) => d <= 0)}件　翌日まで：${count((d) => d <= 1)}件　3日以内：${count((d) => d <= 3)}件`;
+  }
+  const parts = [['期限切れ', count((d) => d < 0)], ['今日', count((d) => d === 0)], ['3日以内', count((d) => d >= 1 && d <= 3)]];
   const shown = parts.filter(([, n]) => n > 0).map(([label, n]) => `${label}${n}件`);
   return shown.length ? `いまの期限：${shown.join('・')}` : '';
 }

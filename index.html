@@ -48,7 +48,12 @@
           </label>
           <label class="field">
             <span>進捗</span>
-            <input name="progress" type="text" maxlength="200" placeholder="例：A社は見積もり待ち">
+            <select name="progress">
+              <option value="">（選ばない）</option>
+              <option>まだ</option>
+              <option>途中</option>
+              <option>返事待ち</option>
+            </select>
           </label>
           <div class="field-row">
             <label class="field">
@@ -69,7 +74,7 @@
         <summary>AIの要約を貼り付けて追加</summary>
         <label class="field">
           <span>AIに整理してもらった文を、ここに貼り付けます</span>
-          <textarea id="paste-text" rows="6" placeholder="内容：厨房機器の見積もりをとる&#10;対応：2社に電話して比較する&#10;進捗：A社は返事待ち&#10;担当：店長&#10;期限：2026-11-20"></textarea>
+          <textarea id="paste-text" rows="6" placeholder="内容：厨房機器の見積もりをとる&#10;対応：2社に電話して比較する&#10;進捗：返事待ち&#10;担当：店長&#10;期限：2026-11-20"></textarea>
         </label>
         <p class="paste-hint" id="paste-hint" hidden></p>
         <ul class="candidates" id="candidates"></ul>

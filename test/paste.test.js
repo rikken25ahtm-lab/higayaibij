@@ -48,7 +48,7 @@ test('決まった形の要約を1件読む', () => {
   );
   assert.equal(rest.length, 0);
   assert.deepEqual(item, {
-    content: '厨房機器の見積もりをとる', action: '2社に電話して比較する', progress: 'A社は返事待ち',
+    content: '厨房機器の見積もりをとる', action: '2社に電話して比較する', progress: '返事待ち',
     assignee: '店長', due: '2026-11-20', dueText: '2026-11-20', dueUnreadable: false,
   });
 });
@@ -103,4 +103,19 @@ test('長すぎる文字は保存できる長さに切る／空は候補なし',
   const [item] = L.parsePaste('内容：' + 'あ'.repeat(300), TODAY);
   assert.equal(item.content.length, 200);
   assert.deepEqual(L.parsePaste('  \n\n', TODAY), []);
+});
+
+test('進捗は3択に寄せる', () => {
+  const p = L.normalizeProgress;
+  assert.equal(p('まだ'), 'まだ');
+  assert.equal(p('途中'), '途中');
+  assert.equal(p('返事待ち'), '返事待ち');
+  assert.equal(p('これから着手'), 'まだ');
+  assert.equal(p('未着手'), 'まだ');
+  assert.equal(p('進行中'), '途中');
+  assert.equal(p('A社は見積もり待ち'), '返事待ち');
+  assert.equal(p(''), '');
+  assert.equal(p('書類は準備済み'), '書類は準備済み', 'どれにも当たらない文はそのまま');
+  const [item] = L.parsePaste('内容：専用Botを完成させる\n進捗：これから着手', TODAY);
+  assert.equal(item.progress, 'まだ');
 });

@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const { toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste } = window.Logic;
+  const { toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES } = window.Logic;
   const config = window.HIGAYAIBIN_CONFIG || {};
   const Store =
     config.supabaseUrl && config.supabaseKey ? window.createRemoteStore(config) : window.LocalStore;
@@ -109,11 +109,11 @@
         { class: 'body' },
         el('p', { class: 'content' }, item.content),
         item.action ? el('p', { class: 'action' }, item.action) : null,
-        item.progress ? el('p', { class: 'progress' }, el('span', null, '進捗'), item.progress) : null,
         el(
           'p',
           { class: 'meta' },
           item.due || !isDone ? el('span', { class: `due ${level}` }, dueLabel(item.due, today)) : null,
+          item.progress && !isDone ? el('span', { class: 'progress' }, item.progress) : null,
           item.assignee ? el('span', { class: 'assignee' }, `担当：${item.assignee}`) : null
         )
       ),
@@ -130,7 +130,14 @@
     const field = (label, control) => el('label', { class: 'field' }, el('span', null, label), control);
     const content = el('input', { name: 'content', type: 'text', required: true, maxlength: 200 });
     const action = el('textarea', { name: 'action', rows: 2, maxlength: 500 });
-    const progress = el('input', { name: 'progress', type: 'text', maxlength: 200 });
+    // 3択になる前に自由に書いた進捗が残っている項目は、その文も選べるようにして消さない
+    const choices = PROGRESS_CHOICES.includes(item.progress) || !item.progress ? PROGRESS_CHOICES : [item.progress, ...PROGRESS_CHOICES];
+    const progress = el(
+      'select',
+      { name: 'progress' },
+      el('option', { value: '' }, '（選ばない）'),
+      ...choices.map((c) => el('option', { value: c }, c))
+    );
     const assignee = el('input', { name: 'assignee', type: 'text', maxlength: 50, list: 'assignees' });
     const due = el('input', { name: 'due', type: 'date' });
     content.value = item.content;
@@ -246,13 +253,14 @@
   $('prompt-text').value = [
     'これから話す用件を、やることリスト用に整理してください。',
     '次の形だけで出力し、前置きや説明は書かないでください。',
+    'どの欄も、要点だけを短い言葉で書いてください。',
     '用件が複数あるときは、1件ごとに空行で区切って、同じ形を繰り返してください。',
     'わからない欄は「なし」と書いてください。',
     '期限は「2026-11-20」のように、年-月-日の数字で書いてください。',
     '',
-    '内容：（何をするかを短く1行で）',
-    '対応：（そのために必要な行動）',
-    '進捗：（今の状況）',
+    '内容：（何をするか。15文字くらいまで）',
+    '対応：（次にやる行動を1つ。短く）',
+    '進捗：（「まだ」「途中」「返事待ち」のどれか1つ）',
     '担当：（誰に任せるか）',
     '期限：（年-月-日）',
   ].join('\n');

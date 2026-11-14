@@ -136,6 +136,18 @@
     return null;
   }
 
+  // 進捗は3つから選ぶ。AI が少し違う言い方をしても、近いものに寄せる。
+  const PROGRESS_CHOICES = ['まだ', '途中', '返事待ち'];
+
+  function normalizeProgress(text) {
+    const t = String(text || '').trim();
+    if (!t) return '';
+    if (/待ち|待機|保留/.test(t)) return '返事待ち';
+    if (/まだ|未着手|未対応|これから|未定|未$/.test(t)) return 'まだ';
+    if (/途中|進行中|対応中|作業中|着手|進めて/.test(t)) return '途中';
+    return t; // どれにも当たらない文は、捨てずにそのまま残す
+  }
+
   const PASTE_KEYS = [
     ['content', '内容|やること|タスク|タイトル|件名|用件'],
     ['action', '必要な対応|対応|アクション|やり方'],
@@ -193,6 +205,7 @@
           const value = (item[field] || '').replace(/^\n+/, '').trim();
           out[field] = EMPTY_WORDS.test(value) ? '' : value.slice(0, limit);
         }
+        out.progress = normalizeProgress(out.progress);
         const dueText = EMPTY_WORDS.test(item.dueText) ? '' : item.dueText;
         out.due = parseDue(dueText, todayKey);
         out.dueText = dueText;
@@ -202,7 +215,7 @@
       .filter((item) => item.content || item.action || item.progress || item.assignee || item.dueText);
   }
 
-  const api = { toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, parsePaste };
+  const api = { toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, parsePaste, PROGRESS_CHOICES, normalizeProgress };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
 })(typeof self !== 'undefined' ? self : this);

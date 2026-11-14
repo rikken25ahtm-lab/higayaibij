@@ -32,13 +32,14 @@
       return readAll();
     },
 
-    // fields: { content, action, assignee, due }
+    // fields: { content, action, progress, assignee, due }
     async add(fields) {
       const now = new Date().toISOString();
       const item = {
         id: newId(),
         content: fields.content,
         action: fields.action || '',
+        progress: fields.progress || '',
         assignee: fields.assignee || '',
         due: fields.due || null, // 'YYYY-MM-DD'
         status: 'open', // 'open' | 'done'

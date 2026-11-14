@@ -187,6 +187,8 @@ input:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus
 .body { min-width: 0; }
 .content { font-weight: bold; overflow-wrap: anywhere; }
 .action { color: var(--muted); font-size: 0.92rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.progress { font-size: 0.92rem; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.progress span { margin-right: 8px; padding: 0 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.78rem; color: var(--muted); }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 6px; font-size: 0.85rem; }
 .due { padding: 1px 9px; border-radius: 999px; background: var(--bg); color: var(--muted); }
 .due.overdue { background: var(--overdue-bg); color: var(--overdue); font-weight: bold; }

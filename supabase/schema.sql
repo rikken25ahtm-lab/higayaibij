@@ -6,6 +6,7 @@ create table public.items (
   user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
   content     text not null check (char_length(content) between 1 and 200),  -- 内容
   action      text not null default '',                                      -- 必要な対応
+  progress    text not null default '',                                      -- 進捗
   assignee    text not null default '',                                      -- 誰に任せるか
   due         date,                                                          -- 期限
   status      text not null default 'open' check (status in ('open', 'done')),

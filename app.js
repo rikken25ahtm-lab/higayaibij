@@ -38,6 +38,7 @@
     return {
       content: String(data.get('content') || '').trim(),
       action: String(data.get('action') || '').trim(),
+      progress: String(data.get('progress') || '').trim(),
       assignee: String(data.get('assignee') || '').trim(),
       due: String(data.get('due') || '') || null,
     };
@@ -108,6 +109,7 @@
         { class: 'body' },
         el('p', { class: 'content' }, item.content),
         item.action ? el('p', { class: 'action' }, item.action) : null,
+        item.progress ? el('p', { class: 'progress' }, el('span', null, '進捗'), item.progress) : null,
         el(
           'p',
           { class: 'meta' },
@@ -128,10 +130,12 @@
     const field = (label, control) => el('label', { class: 'field' }, el('span', null, label), control);
     const content = el('input', { name: 'content', type: 'text', required: true, maxlength: 200 });
     const action = el('textarea', { name: 'action', rows: 2, maxlength: 500 });
+    const progress = el('input', { name: 'progress', type: 'text', maxlength: 200 });
     const assignee = el('input', { name: 'assignee', type: 'text', maxlength: 50, list: 'assignees' });
     const due = el('input', { name: 'due', type: 'date' });
     content.value = item.content;
     action.value = item.action;
+    progress.value = item.progress || '';
     assignee.value = item.assignee;
     due.value = item.due || '';
 
@@ -154,6 +158,7 @@
       },
       field('内容', content),
       field('必要な対応', action),
+      field('進捗', progress),
       el('div', { class: 'field-row' }, field('誰に任せるか', assignee), field('期限', due)),
       el(
         'div',

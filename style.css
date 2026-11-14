@@ -394,7 +394,6 @@ section.mail { margin-bottom: 24px; }
   font-weight: bold;
   cursor: pointer;
 }
-.delete-in-editor { margin-right: auto; color: var(--overdue); }
 @media (prefers-reduced-motion: reduce) {
   .items > .item { transition: none !important; }
 }

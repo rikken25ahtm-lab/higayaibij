@@ -404,3 +404,7 @@ section.mail { margin-bottom: 24px; }
 
 /* お知らせが細長く折り返さないように */
 .toast { width: max-content; }
+
+/* ---- カテゴリの名前を変える・なくす ---- */
+.cat-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.cat-form { display: grid; gap: 10px; margin: 0 0 12px; padding: 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface); }

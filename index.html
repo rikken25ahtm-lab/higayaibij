@@ -127,6 +127,20 @@
 
       <h2 id="list-title">やること <span class="count" id="open-count"></span></h2>
       <div class="cats" id="cats" hidden role="group" aria-label="カテゴリで絞り込む"></div>
+      <div class="cat-tools" id="cat-tools" hidden>
+        <button type="button" class="btn small" id="cat-rename">カテゴリの名前を変える</button>
+        <button type="button" class="btn small" id="cat-remove">このカテゴリをなくす</button>
+      </div>
+      <form class="cat-form" id="cat-form" hidden autocomplete="off">
+        <label class="field">
+          <span>カテゴリの名前（頭に ①②… をつけると、その順に並びます）</span>
+          <input name="name" type="text" maxlength="50" required>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn" id="cat-cancel">やめる</button>
+          <button type="submit" class="btn primary">保存する</button>
+        </div>
+      </form>
       <p class="how" id="how">項目を押すと編集できます。削除は、左にスワイプするか、編集の中から。</p>
       <p class="empty" id="empty" hidden>まだ項目がありません。上のフォームから追加してください。</p>
       <ul class="items" id="open-list"></ul>

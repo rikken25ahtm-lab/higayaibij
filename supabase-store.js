@@ -139,6 +139,11 @@
         return fromRow(await send(row, (r) => table().update(r).eq('id', id).select().single()));
       },
 
+      // カテゴリの名前を変える（to が空なら、そのカテゴリをなくす）。項目は消えない
+      async renameCategory(from, to) {
+        unwrap(await table().update({ category: to }).eq('category', from));
+      },
+
       async remove(id) {
         unwrap(await table().delete().eq('id', id));
       },

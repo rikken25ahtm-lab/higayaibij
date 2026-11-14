@@ -55,6 +55,7 @@
       localStorage.setItem(CATEGORY_KEY, JSON.stringify(value));
     } catch (e) { /* 覚えられなくても、絞り込みは動く */ }
     editingId = null;
+    $('cat-form').hidden = true;
     render();
   }
 
@@ -171,6 +172,9 @@
         onclick: () => setCategory(value),
       }, label, el('span', { class: 'n' }, String(count)));
     const none = openItems.filter((i) => !i.category).length;
+    // カテゴリを選んでいるときだけ、そのカテゴリの名前の変更・削除を出す
+    $('cat-tools').hidden = !activeCategory || !$('cat-form').hidden;
+    if (!activeCategory) $('cat-form').hidden = true;
     $('cats').hidden = categories.length === 0;
     $('cats').replaceChildren(
       chip('すべて', null, openItems.length),
@@ -184,6 +188,57 @@
     if (select.value !== NEW_CATEGORY) fillCategories(select, addCategoryChosen ? select.value : activeCategory || '');
     updatePrompt(categories);
   }
+
+  // ---- カテゴリの名前を変える・なくす（選んでいるカテゴリが対象） ----
+  const catForm = $('cat-form');
+
+  $('cat-rename').addEventListener('click', () => {
+    catForm.elements.name.value = activeCategory;
+    catForm.hidden = false;
+    $('cat-tools').hidden = true;
+    catForm.elements.name.focus();
+  });
+
+  $('cat-cancel').addEventListener('click', () => {
+    catForm.hidden = true;
+    render();
+  });
+
+  // 元に戻すときは、変える前にそのカテゴリだった項目だけを戻す
+  async function changeCategory(from, to, message) {
+    const ids = items.filter((i) => i.category === from).map((i) => i.id);
+    await Store.renameCategory(from, to);
+    catForm.hidden = true;
+    activeCategory = to || null;
+    try {
+      localStorage.setItem(CATEGORY_KEY, JSON.stringify(activeCategory));
+    } catch (e) { /* 覚えられなくても動く */ }
+    await reload();
+    showToast(message, async () => {
+      for (const id of ids) await Store.update(id, { category: from });
+      await reload();
+    });
+  }
+
+  catForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const from = activeCategory;
+    const to = catForm.elements.name.value.trim().slice(0, 50);
+    if (!from || !to) return;
+    if (to === from) {
+      catForm.hidden = true;
+      return render();
+    }
+    if (categoriesOf(items).includes(to) && !confirm(`「${to}」はすでにあります。「${from}」の項目を、そちらにまとめますか？`)) return;
+    await changeCategory(from, to, 'カテゴリの名前を変えました');
+  });
+
+  $('cat-remove').addEventListener('click', async () => {
+    const from = activeCategory;
+    const count = items.filter((i) => i.category === from).length;
+    if (!from || !confirm(`カテゴリ「${from}」をなくしますか？\n中の${count}件の項目は消えず、「カテゴリなし」になります。`)) return;
+    await changeCategory(from, '', 'カテゴリをなくしました');
+  });
 
   // これまでに入力した担当者を候補に出す
   function renderAssignees() {

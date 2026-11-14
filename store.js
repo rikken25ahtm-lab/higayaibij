@@ -64,6 +64,11 @@
       return items[index];
     },
 
+    // カテゴリの名前を変える（to が空なら、そのカテゴリをなくす）。項目は消えない
+    async renameCategory(from, to) {
+      writeAll(readAll().map((i) => ((i.category || '') === from ? { ...i, category: to } : i)));
+    },
+
     async remove(id) {
       writeAll(readAll().filter((i) => i.id !== id));
     },

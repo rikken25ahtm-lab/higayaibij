@@ -2,6 +2,6 @@
 // ここに入れるのは「公開してよい」値だけです（Project URL と Publishable / anon キー）。
 // service_role や secret と書かれたキーは絶対に入れないでください。
 window.HIGAYAIBIN_CONFIG = {
-  supabaseUrl: '',
+  supabaseUrl: 'https://ngddtyyxfcmfzpjqcaco.supabase.co',
   supabaseKey: 'sb_publishable_A0jk5-oz5dTF0-URK1aRlA_lpUe3vL0',
 };

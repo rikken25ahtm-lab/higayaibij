@@ -21,23 +21,37 @@
       const onButton = $('notify-on');
       const testButton = $('notify-test');
       const offButton = $('notify-off');
+      const openLink = $('notify-open');
       if (!Store.remote) return;
-      box.hidden = false;
 
       let registration = null;
+      let openedByHand = false;
 
-      function show(text, state) {
+      // 欄を大きく出すのは、まだ選んでいないとき（needsChoice）だけ。
+      // 選び終わったあとは畳んで、一番下の「通知の設定」から開けるようにする。
+      function show(text, state, needsChoice = state === 'off') {
         status.textContent = text;
         onButton.hidden = state !== 'off';
         testButton.hidden = state !== 'on';
         offButton.hidden = state !== 'on';
+        if (needsChoice) openedByHand = false;
+        box.hidden = !needsChoice && !openedByHand;
+        openLink.hidden = needsChoice;
+        openLink.setAttribute('aria-expanded', String(!box.hidden));
       }
+
+      openLink.addEventListener('click', () => {
+        openedByHand = box.hidden;
+        box.hidden = !openedByHand;
+        openLink.setAttribute('aria-expanded', String(openedByHand));
+        if (openedByHand) box.scrollIntoView({ block: 'nearest' });
+      });
 
       async function refresh() {
         if (!supported) {
-          return show(isIOS && !isInstalled
-            ? 'iPhone では、Safari の共有ボタンから「ホーム画面に追加」を選び、ホーム画面のアイコンから開くと通知を受け取れます。'
-            : 'このブラウザは通知に対応していません。', 'none');
+          return isIOS && !isInstalled
+            ? show('iPhone では、Safari の共有ボタンから「ホーム画面に追加」を選び、ホーム画面のアイコンから開くと通知を受け取れます。', 'none', true)
+            : show('このブラウザは通知に対応していません。', 'none');
         }
         if (Notification.permission === 'denied') {
           return show(isIOS

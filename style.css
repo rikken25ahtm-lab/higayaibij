@@ -272,3 +272,4 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .report { grid-column: 1 / -1; border-color: var(--accent); }
 .report ul { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; font-size: 0.95rem; }
 .item.reported { outline: 2px solid var(--accent); outline-offset: 1px; }
+.notify-open { grid-column: 1 / -1; justify-self: start; color: var(--muted); font-weight: normal; font-size: 0.85rem; }

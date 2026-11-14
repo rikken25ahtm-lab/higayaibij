@@ -61,6 +61,19 @@
       return response.json();
     }
 
+    async function postReport(body) {
+      const { data } = await client.auth.getSession();
+      return callReport({
+        method: 'POST',
+        headers: {
+          apikey: config.supabaseKey,
+          Authorization: `Bearer ${data.session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
     return {
       remote: true,
 
@@ -109,12 +122,13 @@
       },
 
       // ログイン中の本人の端末に、今の内容をすぐ送る
-      async sendTestReport() {
-        const { data } = await client.auth.getSession();
-        return callReport({
-          method: 'POST',
-          headers: { apikey: config.supabaseKey, Authorization: `Bearer ${data.session.access_token}` },
-        });
+      sendTestReport() {
+        return postReport({});
+      },
+
+      // 通知で届いた回の報告の中身（view は '2026-11-14-morning' の形、または 'now'）
+      viewReport(view) {
+        return postReport({ view });
       },
 
       // ---- ログイン ----

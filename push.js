@@ -15,7 +15,7 @@
   const supported = 'serviceWorker' in navigator && 'PushManager' in root && 'Notification' in root;
 
   root.Notify = {
-    async init(Store, showToast) {
+    async init(Store, showToast, markItems) {
       const box = $('notify');
       const status = $('notify-status');
       const onButton = $('notify-on');
@@ -48,7 +48,7 @@
           await Store.savePushSubscription(sub.toJSON()); // ログインし直したあとも登録が残るように
           show('この端末で、毎日 朝10時と夕方17時に報告を受け取ります。', 'on');
         } else {
-          show('毎日 朝10時と夕方17時に、期限の近いやることを通知でお知らせします。', 'off');
+          show('毎日 朝10時と夕方17時に、その間に起きたこと（追加・期限の変更など）を通知でお知らせします。', 'off');
         }
       }
 
@@ -97,6 +97,46 @@
         showToast('通知をやめました。', null);
         await refresh();
       }));
+
+      // ---- 通知を押して開いたとき：その回の報告を、ページの一番上に出す ----
+      async function openReport(view) {
+        if (!/^(now|\d{4}-\d{2}-\d{2}-(morning|evening))$/.test(view)) return;
+        try {
+          const report = await Store.viewReport(view);
+          $('report-title').textContent = report.title;
+          $('report-lines').replaceChildren(...(report.lines.length ? report.lines : ['急ぎの期限もありません。']).map((line) => {
+            const li = document.createElement('li');
+            li.textContent = line;
+            return li;
+          }));
+          $('report').hidden = false;
+          await markItems(report.itemIds);
+          $('report').scrollIntoView({ block: 'start' });
+        } catch (error) {
+          console.error(error);
+          showToast('報告を読み込めませんでした。通信を確認してください。', null);
+        }
+      }
+
+      function openReportFromHash() {
+        const match = location.hash.match(/^#report=(.+)$/);
+        if (!match) return;
+        history.replaceState(null, '', location.pathname + location.search); // 開き直すたびに出ないように
+        openReport(match[1]);
+      }
+
+      $('report-close').addEventListener('click', () => {
+        $('report').hidden = true;
+        markItems([]);
+      });
+      root.addEventListener('hashchange', openReportFromHash);
+      if (supported) {
+        // すでに開いているページには、通知の側から知らせが来る
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data && event.data.report) openReport(event.data.report);
+        });
+      }
+      openReportFromHash();
 
       // ログアウトした端末には報告を送らない
       this.beforeSignOut = () => turnOff().catch((error) => console.error(error));

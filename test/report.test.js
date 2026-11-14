@@ -17,39 +17,73 @@ test('日本時間への変換と、報告の時間帯', async () => {
   assert.equal(R.slotFor(11), null);
 });
 
-test('報告：期限切れ・今日・3日以内を、期限の近い順に並べる', async () => {
+const ev = (item_id, kind, content, more = {}) => ({ item_id, kind, content, old_due: null, new_due: null, ...more });
+
+test('報告の時間の範囲：朝は前日17時〜当日10時、夕方は当日10時〜17時（日本時間）', async () => {
+  const R = await load();
+  assert.deepEqual(R.slotWindow('2026-11-14', 'morning'),
+    { start: new Date('2026-11-13T08:00:00Z'), end: new Date('2026-11-14T01:00:00Z') });
+  assert.deepEqual(R.slotWindow('2026-11-14', 'evening'),
+    { start: new Date('2026-11-14T01:00:00Z'), end: new Date('2026-11-14T08:00:00Z') });
+  assert.deepEqual(R.currentWindow(new Date('2026-11-14T03:00:00Z')).start, new Date('2026-11-14T01:00:00Z'));
+  assert.deepEqual(R.currentWindow(new Date('2026-11-14T00:30:00Z')).start, new Date('2026-11-13T08:00:00Z'));
+  assert.deepEqual(R.currentWindow(new Date('2026-11-14T09:00:00Z')).start, new Date('2026-11-14T08:00:00Z'));
+});
+
+test('報告：その時間に起きたこと（追加・期限変更・完了・削除）と、期限の近い件数', async () => {
   const R = await load();
   const report = R.buildReport([
-    item('看板の発注', '2026-11-16', { assignee: '店長', progress: '返事待ち' }),
-    item('保健所に連絡', '2026-11-14'),
-    item('内装の見積もり', '2026-11-12', { progress: '途中' }),
-    item('メニュー撮影', '2026-11-30'),
-    item('期限なしの用件', null),
-    item('済んだ用件', '2026-11-14', { status: 'done' }),
-  ], TODAY, 'morning');
-  assert.equal(report.title, '朝の報告：期限切れ1・今日1・3日以内1');
+    ev('a', 'added', '看板の発注', { new_due: '2026-11-20' }),
+    ev('b', 'due_changed', '内装の見積もり', { old_due: '2026-11-12', new_due: '2026-11-18' }),
+    ev('c', 'done', '保健所に連絡'),
+    ev('d', 'deleted', '古い用件'),
+  ], [item('内装の見積もり', '2026-11-18'), item('酒屋に電話', '2026-11-14'), item('家賃の振込', '2026-11-10')], TODAY, 'morning');
+  assert.equal(report.title, '朝の報告：追加1・期限変更1・完了1・削除1');
   assert.deepEqual(report.body.split('\n'), [
-    '【切れ 11/12】内装の見積もり（途中）',
-    '【今日】保健所に連絡',
-    '【11/16】看板の発注（店長・返事待ち）',
+    '【追加】看板の発注（期限 11/20）',
+    '【期限変更】内装の見積もり：11/12→11/18',
+    '【完了】保健所に連絡',
+    '【削除】古い用件',
+    'いまの期限：期限切れ1・今日1',
+  ]);
+  assert.deepEqual(report.itemIds, ['a', 'b', 'c']);
+});
+
+test('報告：項目ごとに、結局どうなったかだけを伝える', async () => {
+  const R = await load();
+  const changes = R.summarizeEvents([
+    ev('a', 'added', 'すぐ消した'), ev('a', 'deleted', 'すぐ消した'),
+    ev('b', 'added', '追加して期限を直した', { new_due: '2026-11-20' }),
+    ev('b', 'due_changed', '追加して期限を直した', { old_due: '2026-11-20', new_due: '2026-11-22' }),
+    ev('c', 'due_changed', '2回変えた', { old_due: '2026-11-15', new_due: '2026-11-16' }),
+    ev('c', 'due_changed', '2回変えた', { old_due: '2026-11-16', new_due: '2026-11-19' }),
+    ev('d', 'done', '完了して戻した'), ev('d', 'reopened', '完了して戻した'),
+    ev('e', 'deleted', '消して元に戻した'), ev('e', 'added', '消して元に戻した'),
+    ev('f', 'due_changed', '変えて戻した', { old_due: '2026-11-15', new_due: '2026-11-16' }),
+    ev('f', 'due_changed', '変えて戻した', { old_due: '2026-11-16', new_due: '2026-11-15' }),
+  ]);
+  assert.deepEqual(changes, [
+    { itemId: 'b', content: '追加して期限を直した', kind: 'added', due: '2026-11-22' },
+    { itemId: 'c', content: '2回変えた', kind: 'due_changed', from: '2026-11-15', to: '2026-11-19' },
   ]);
 });
 
-test('報告：急ぎがなければ1行で伝える', async () => {
+test('報告：動きがなければ、そう伝える', async () => {
   const R = await load();
-  assert.deepEqual(R.buildReport([item('メニュー撮影', '2026-11-30')], TODAY, 'evening'), {
-    title: '夕方の報告：急ぎはありません',
-    body: '残っているやることは 1件。期限が3日以内のものはありません。',
-  });
-  assert.equal(R.buildReport([], TODAY, 'morning').body, 'やることは残っていません。');
+  assert.deepEqual(R.buildReport([], [item('メニュー撮影', '2026-11-30')], TODAY, 'evening'),
+    { title: '夕方の報告：動きはありません', body: '急ぎの期限もありません。', lines: [], itemIds: [] });
+  const withDeadline = R.buildReport([], [item('酒屋に電話', '2026-11-16')], TODAY, 'morning');
+  assert.equal(withDeadline.body, 'いまの期限：3日以内1');
 });
 
-test('報告：多いときは6件までにして、残りは件数で伝える', async () => {
+test('報告：多いときは通知を6件までにして、残りは件数で伝える（画面用は全部）', async () => {
   const R = await load();
-  const many = Array.from({ length: 9 }, (_, i) => item(`用件${i}`, '2026-11-14'));
-  const lines = R.buildReport(many, TODAY, 'morning').body.split('\n');
+  const many = Array.from({ length: 9 }, (_, i) => ev(`id${i}`, 'added', `用件${i}`));
+  const report = R.buildReport(many, [], TODAY, 'morning');
+  const lines = report.body.split('\n');
   assert.equal(lines.length, 7);
   assert.equal(lines[6], 'ほか 3件');
+  assert.equal(report.lines.length, 9);
 });
 
 // 受け取る端末の側の手順（RFC 8291）で復号する
@@ -112,8 +146,8 @@ test('通知：端末の鍵で復号でき、署名も正しい', async () => {
 });
 
 // Supabase と通知の配信元の代わりをする、テスト用の fetch
-function fakeBackend(device, items) {
-  const state = { config: [], log: [], subs: [device.subscription], pushes: [], pushStatus: 201 };
+function fakeBackend(device, items, events = []) {
+  const state = { config: [], log: [], subs: [device.subscription], pushes: [], pushStatus: 201, eventQueries: [] };
   const reply = (data, status = 200) => new Response(JSON.stringify(data), { status });
   const fetchImpl = async (url, init = {}) => {
     const method = init.method || 'GET';
@@ -139,6 +173,7 @@ function fakeBackend(device, items) {
       if (method === 'DELETE') { state.subs = []; return reply(null, 200); }
       return reply(state.subs);
     }
+    if (path.startsWith('/rest/v1/item_events')) { state.eventQueries.push(path); return reply(events); }
     if (path.startsWith('/rest/v1/items')) return reply(items);
     throw new Error(`想定外の通信: ${method} ${url}`);
   };
@@ -146,11 +181,11 @@ function fakeBackend(device, items) {
 }
 
 const ENV = { url: 'https://example.supabase.co', serviceKey: 'service-key' };
-const post = (headers = {}) => new Request('https://example.supabase.co/functions/v1/report', { method: 'POST', headers });
+const post = (headers = {}, body = {}) => new Request('https://example.supabase.co/functions/v1/report', { method: 'POST', headers, body: JSON.stringify(body) });
 
 test('時刻の報告：朝10時台に1回だけ送り、ほかの時間には送らない', async () => {
   const R = await load();
-  const { state, fetchImpl } = fakeBackend(fakeDevice(), [item('保健所に連絡', '2026-11-14')]);
+  const { state, fetchImpl } = fakeBackend(fakeDevice(), [item('保健所に連絡', '2026-11-14')], [ev('a', 'added', '保健所に連絡', { new_due: '2026-11-14' })]);
 
   const noon = await R.handle(post(), ENV, fetchImpl, new Date('2026-11-14T03:00:00Z'));
   assert.deepEqual(await noon.json(), { mode: 'schedule', skipped: 'time' });
@@ -158,7 +193,10 @@ test('時刻の報告：朝10時台に1回だけ送り、ほかの時間には�
 
   const morning = await R.handle(post(), ENV, fetchImpl, new Date('2026-11-14T01:00:05Z'));
   assert.deepEqual(await morning.json(), { mode: 'schedule', slot: 'morning', sent: 1, failed: 0 });
-  assert.deepEqual(state.pushes, [{ title: '朝の報告：今日1', body: '【今日】保健所に連絡', tag: 'morning' }]);
+  assert.deepEqual(state.pushes, [{
+    title: '朝の報告：追加1', body: '【追加】保健所に連絡（期限 11/14）\nいまの期限：今日1', tag: 'morning', view: '2026-11-14-morning',
+  }]);
+  assert.match(state.eventQueries[0], /user_id=eq\.user-1&at=gte\.2026-11-13T08:00:00\.000Z&at=lt\.2026-11-14T01:00:00\.000Z/);
 
   const again = await R.handle(post(), ENV, fetchImpl, new Date('2026-11-14T01:20:00Z'));
   assert.deepEqual(await again.json(), { mode: 'schedule', skipped: 'already-sent' });
@@ -166,7 +204,8 @@ test('時刻の報告：朝10時台に1回だけ送り、ほかの時間には�
 
   const evening = await R.handle(post(), ENV, fetchImpl, new Date('2026-11-14T08:00:05Z'));
   assert.equal((await evening.json()).slot, 'evening');
-  assert.equal(state.pushes[1].title, '夕方の報告：今日1');
+  assert.equal(state.pushes[1].view, '2026-11-14-evening');
+  assert.match(state.eventQueries[1], /at=gte\.2026-11-14T01:00:00\.000Z&at=lt\.2026-11-14T08:00:00\.000Z/);
 });
 
 test('お試し：ログイン中の本人には、時間に関係なくすぐ送る', async () => {
@@ -174,10 +213,20 @@ test('お試し：ログイン中の本人には、時間に関係なくすぐ�
   const { state, fetchImpl } = fakeBackend(fakeDevice(), []);
   const res = await R.handle(post({ Authorization: 'Bearer good-token' }), ENV, fetchImpl, new Date('2026-11-14T03:00:00Z'));
   assert.deepEqual(await res.json(), { mode: 'test', sent: 1, failed: 0 });
-  assert.equal(state.pushes[0].title, '今の状況：急ぎはありません');
+  assert.equal(state.pushes[0].title, '今の状況：動きはありません');
+  assert.equal(state.pushes[0].view, 'now');
 
   const stranger = await R.handle(post({ Authorization: 'Bearer wrong' }), ENV, fetchImpl, new Date('2026-11-14T03:00:00Z'));
   assert.deepEqual(await stranger.json(), { mode: 'schedule', skipped: 'time' });
+});
+
+test('通知から開いたページ用：その回の報告を返すだけで、送信はしない', async () => {
+  const R = await load();
+  const { state, fetchImpl } = fakeBackend(fakeDevice(), [], [ev('a', 'added', '看板の発注')]);
+  const res = await R.handle(post({ Authorization: 'Bearer good-token' }, { view: '2026-11-13-evening' }), ENV, fetchImpl, new Date('2026-11-14T03:00:00Z'));
+  assert.deepEqual(await res.json(), { mode: 'view', title: '夕方の報告：追加1', lines: ['【追加】看板の発注'], itemIds: ['a'] });
+  assert.match(state.eventQueries[0], /at=gte\.2026-11-13T01:00:00\.000Z&at=lt\.2026-11-13T08:00:00\.000Z/);
+  assert.equal(state.pushes.length, 0);
 });
 
 test('公開鍵は初回に作られ、2回目以降も同じ。無効になった端末の登録は消す', async () => {

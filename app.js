@@ -17,6 +17,7 @@
   let editingId = null;
   let toastTimer = null;
   let undoAction = null;
+  let reportIds = new Set(); // 開いている報告に出てくる項目（一覧で目印をつける）
 
   // 小さな DOM ヘルパー。文字は必ず textContent で入れる（HTMLとして解釈させない）。
   function el(tag, props, ...children) {
@@ -96,7 +97,7 @@
 
     return el(
       'li',
-      { class: `item ${isDone ? 'done' : level}`, 'data-id': item.id },
+      { class: `item ${isDone ? 'done' : level}${reportIds.has(item.id) ? ' reported' : ''}`, 'data-id': item.id },
       el('button', {
         type: 'button',
         class: 'check',
@@ -376,7 +377,10 @@
     await reload();
     if (!notifyReady) {
       notifyReady = true;
-      window.Notify.init(Store, showToast);
+      window.Notify.init(Store, showToast, async (ids) => {
+        reportIds = new Set(ids);
+        await reload();
+      });
     }
   }
 

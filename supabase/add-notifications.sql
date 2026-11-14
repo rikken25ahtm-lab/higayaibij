@@ -35,6 +35,57 @@ create table if not exists public.report_log (
 );
 alter table public.report_log enable row level security;
 
+-- やることに起きたこと（追加・期限の変更・完了・削除）の記録。報告は、これを時間で区切って読む。
+-- 記録はデータベースが自動でつけるので、どの端末から操作しても漏れない。
+create table if not exists public.item_events (
+  id       bigint generated always as identity primary key,
+  user_id  uuid not null,
+  item_id  uuid not null,
+  kind     text not null check (kind in ('added', 'due_changed', 'done', 'reopened', 'deleted')),
+  content  text not null,                      -- そのときの「内容」
+  old_due  date,
+  new_due  date,
+  at       timestamptz not null default now()
+);
+create index if not exists item_events_user_at on public.item_events (user_id, at);
+
+alter table public.item_events enable row level security;
+
+drop policy if exists "自分の記録を読むだけ" on public.item_events;
+create policy "自分の記録を読むだけ" on public.item_events
+  for select to authenticated
+  using (auth.uid() = user_id);
+
+grant select on public.item_events to authenticated;
+
+create or replace function public.log_item_event() returns trigger
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if tg_op = 'INSERT' then
+    insert into item_events (user_id, item_id, kind, content, new_due)
+      values (new.user_id, new.id, 'added', new.content, new.due);
+  elsif tg_op = 'DELETE' then
+    insert into item_events (user_id, item_id, kind, content, old_due)
+      values (old.user_id, old.id, 'deleted', old.content, old.due);
+  else
+    if new.due is distinct from old.due then
+      insert into item_events (user_id, item_id, kind, content, old_due, new_due)
+        values (new.user_id, new.id, 'due_changed', new.content, old.due, new.due);
+    end if;
+    if new.status is distinct from old.status then
+      insert into item_events (user_id, item_id, kind, content, new_due)
+        values (new.user_id, new.id, case when new.status = 'done' then 'done' else 'reopened' end, new.content, new.due);
+    end if;
+  end if;
+  return null;
+end;
+$fn$;
+
+drop trigger if exists items_log_event on public.items;
+create trigger items_log_event
+  after insert or update or delete on public.items
+  for each row execute function public.log_item_event();
+
 -- 毎日 10:00 と 17:00（日本時間）に Edge Function を呼ぶ。
 -- cron の時刻は世界標準時なので、9時間引いた 1:00 と 8:00 を指定している。
 create extension if not exists pg_cron;

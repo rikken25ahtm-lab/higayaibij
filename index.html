@@ -16,24 +16,43 @@
     <div class="top-inner">
       <h1>ひがやいびん</h1>
       <ul class="summary" id="summary" aria-live="polite"></ul>
-      <button type="button" class="btn small logout" id="logout" hidden>ログアウト</button>
+      <details class="account" id="account" hidden>
+        <summary class="btn small logout">アカウント</summary>
+        <div class="account-menu">
+          <p class="account-email" id="account-email"></p>
+          <ul class="account-list" id="account-others"></ul>
+          <button type="button" class="btn" id="account-add">別のアカウントを使う・新規登録</button>
+          <button type="button" class="btn" id="logout">ログアウト</button>
+        </div>
+      </details>
     </div>
   </header>
 
   <section class="login panel" id="login" hidden aria-labelledby="login-title">
-    <h2 id="login-title">ログイン</h2>
-    <form id="login-form" class="item-form">
+    <div class="saved" id="saved" hidden>
+      <h2>この端末で使ったアカウント</h2>
+      <ul class="account-list" id="saved-list"></ul>
+    </div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab" id="tab-login" aria-selected="true" aria-controls="login-form">ログイン</button>
+      <button type="button" role="tab" class="tab" id="tab-signup" aria-selected="false" aria-controls="login-form">新規登録</button>
+    </div>
+    <h2 id="login-title" class="visually-hidden">ログイン</h2>
+    <form id="login-form" class="item-form" role="tabpanel">
       <label class="field">
         <span>メールアドレス</span>
         <input name="email" type="email" required autocomplete="username">
       </label>
       <label class="field">
-        <span>パスワード</span>
+        <span id="password-label">パスワード</span>
         <input name="password" type="password" required autocomplete="current-password">
       </label>
+      <label class="check-row"><input type="checkbox" id="show-password"> パスワードを表示する</label>
       <p class="error" id="login-error" role="alert" hidden></p>
-      <button type="submit" class="btn primary">ログインする</button>
+      <p class="info" id="login-info" role="status" hidden></p>
+      <button type="submit" class="btn primary" id="login-submit">ログインする</button>
     </form>
+    <button type="button" class="btn link login-back" id="login-back" hidden>やめて、いまのアカウントに戻る</button>
   </section>
 
   <main class="layout" id="main" hidden>

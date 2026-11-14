@@ -49,8 +49,44 @@
     return unwrap(result);
   }
 
+  // この端末で使ったアカウント。パスワードは保存しない。保存するのは、ログインした状態を保つための鍵だけ
+  // （ログインしたままにしているのと同じ扱い。ほかの人と共有する端末では、使い終わったらログアウトする）
+  const ACCOUNTS_KEY = 'higayaibin.accounts.v1';
+
+  function readAccounts() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '{}');
+      return saved && typeof saved === 'object' ? saved : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function writeAccounts(accounts) {
+    try {
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function rememberAccount(session) {
+    if (!session || !session.user || !session.user.email || !session.refresh_token) return;
+    const accounts = readAccounts();
+    accounts[session.user.email] = { access_token: session.access_token, refresh_token: session.refresh_token };
+    writeAccounts(accounts);
+  }
+
+  function forgetAccount(email) {
+    const accounts = readAccounts();
+    delete accounts[email];
+    writeAccounts(accounts);
+  }
+
   root.createRemoteStore = function (config) {
     const client = root.supabase.createClient(config.supabaseUrl, config.supabaseKey);
+    // ログインしたとき・鍵が新しくなったときに、この端末のアカウントの一覧へ覚えておく
+    client.auth.onAuthStateChange((event, session) => rememberAccount(session));
     const table = () => client.from('items');
     const subscriptions = () => client.from('push_subscriptions');
     const reportUrl = `${config.supabaseUrl}/functions/v1/report`;
@@ -184,8 +220,50 @@
         if (error) throw error;
       },
 
+      // 新規登録。すぐ使える状態になったら { signedIn: true }、確認のメールが必要なら { signedIn: false }
+      async signUp(email, password) {
+        const { data, error } = await client.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: location.origin + location.pathname },
+        });
+        if (error) throw error;
+        // 登録済みのアドレスだと、Supabase は中身が空の利用者を返す
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          throw new Error('User already registered');
+        }
+        return { signedIn: Boolean(data.session) };
+      },
+
+      async currentEmail() {
+        const { data } = await client.auth.getSession();
+        return data.session && data.session.user ? data.session.user.email || '' : '';
+      },
+
+      // この端末で使ったアカウント（メールアドレス）
+      savedAccounts() {
+        return Object.keys(readAccounts());
+      },
+
+      forgetAccount,
+
+      // パスワードを入れ直さずに、覚えているアカウントへ切り替える。
+      // 鍵が古くて使えなくなっていたら失敗する（そのときは、パスワードでログインし直す）
+      async switchTo(email) {
+        const tokens = readAccounts()[email];
+        if (!tokens) throw new Error('このアカウントは覚えていません');
+        const { data, error } = await client.auth.setSession(tokens);
+        if (error || !data.session) {
+          forgetAccount(email);
+          throw error || new Error('切り替えられませんでした');
+        }
+      },
+
+      // この端末だけログアウトする（ほかの端末はログインしたまま）
       async signOut() {
-        await client.auth.signOut();
+        const { data } = await client.auth.getSession();
+        if (data.session && data.session.user) forgetAccount(data.session.user.email);
+        await client.auth.signOut({ scope: 'local' });
       },
 
       onSignedOut(callback) {

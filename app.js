@@ -540,7 +540,86 @@
     showToast('うまく保存・読み込みできませんでした。通信を確認してください。', null);
   });
 
-  // ---- ログイン（Supabase を使うときだけ） ----
+  // ---- ログイン・新規登録・アカウントの切り替え（Supabase を使うときだけ） ----
+  const loginForm = $('login-form');
+  let loginMode = 'login'; // 'login' | 'signup'
+  let currentEmail = '';   // ログイン中のアカウント（ログインしていなければ空）
+  let notifyReady = false;
+
+  function setLoginMode(mode) {
+    loginMode = mode;
+    const signup = mode === 'signup';
+    $('tab-login').setAttribute('aria-selected', String(!signup));
+    $('tab-signup').setAttribute('aria-selected', String(signup));
+    $('login-title').textContent = signup ? '新規登録' : 'ログイン';
+    $('password-label').textContent = signup ? 'パスワード（8文字以上で、自分で決める）' : 'パスワード';
+    loginForm.elements.password.autocomplete = signup ? 'new-password' : 'current-password';
+    if (signup) loginForm.elements.password.minLength = 8;
+    else loginForm.elements.password.removeAttribute('minlength');
+    $('login-submit').textContent = signup ? '登録する' : 'ログインする';
+    $('login-error').hidden = true;
+    $('login-info').hidden = true;
+  }
+
+  function loginMessage(id, text) {
+    $('login-error').hidden = true;
+    $('login-info').hidden = true;
+    $(id).textContent = text;
+    $(id).hidden = false;
+  }
+
+  // 覚えているアカウントのボタン。押すと、パスワードなしで切り替わる
+  function accountButtons(emails, withForget) {
+    return emails.map((email) =>
+      el(
+        'li',
+        null,
+        el('button', { type: 'button', class: 'btn account-pick', onclick: () => switchAccount(email) }, email),
+        withForget
+          ? el('button', {
+              type: 'button',
+              class: 'btn small',
+              'aria-label': `${email} をこの端末の一覧から消す`,
+              onclick: () => {
+                Store.forgetAccount(email);
+                renderSavedAccounts();
+              },
+            }, '消す')
+          : null
+      )
+    );
+  }
+
+  function otherAccounts() {
+    return Store.savedAccounts().filter((email) => email !== currentEmail);
+  }
+
+  function renderSavedAccounts() {
+    const others = otherAccounts();
+    $('saved').hidden = others.length === 0;
+    $('saved-list').replaceChildren(...accountButtons(others, true));
+  }
+
+  function renderAccountMenu() {
+    $('account-email').textContent = currentEmail ? `${currentEmail} でログイン中` : '';
+    $('account-others').replaceChildren(...accountButtons(otherAccounts(), false));
+  }
+
+  // アカウントが変わったら、ページごと読み直す（通知やメールの連携も、新しいアカウントのものに切り替わる）
+  async function switchAccount(email) {
+    await window.Notify.beforeSwitch();
+    try {
+      await Store.switchTo(email);
+    } catch (err) {
+      console.error(err);
+      showLogin();
+      loginForm.elements.email.value = email;
+      loginMessage('login-error', 'このアカウントは、もう一度パスワードを入れてログインしてください。');
+      return;
+    }
+    location.reload();
+  }
+
   function showLogin() {
     items = [];
     mails = [];
@@ -548,18 +627,24 @@
     mailEditingId = null;
     $('main').hidden = true;
     $('summary').hidden = true;
-    $('logout').hidden = true;
+    $('account').hidden = true;
+    $('account').open = false;
     $('login').hidden = false;
+    $('login-back').hidden = !currentEmail;
+    setLoginMode('login');
+    renderSavedAccounts();
   }
-
-  let notifyReady = false;
 
   async function showMain() {
     $('login').hidden = true;
     $('main').hidden = false;
     $('summary').hidden = false;
-    $('logout').hidden = !Store.remote;
+    $('account').hidden = !Store.remote;
     $('local-note').hidden = Store.remote;
+    if (Store.remote) {
+      currentEmail = await Store.currentEmail();
+      renderAccountMenu();
+    }
     await reload();
     if (!notifyReady) {
       notifyReady = true;
@@ -571,26 +656,74 @@
     }
   }
 
-  $('login-form').addEventListener('submit', async (e) => {
+  const SIGNUP_ERRORS = [
+    [/already registered|already been registered/i, 'このメールアドレスは登録済みです。「ログイン」から入ってください。'],
+    [/signups? not allowed|signup is disabled|signups are disabled/i, 'いまは新規登録を受け付けていません（Supabase の設定で止められています）。'],
+    [/password/i, 'パスワードは8文字以上にしてください。'],
+    [/rate limit|too many|security purposes/i, '短い時間に何度も試したため、いまは受け付けられません。少し待ってから、もう一度試してください。'],
+    [/invalid.*email|email.*invalid/i, 'メールアドレスの形を確認してください。'],
+  ];
+
+  $('tab-login').addEventListener('click', () => setLoginMode('login'));
+  $('tab-signup').addEventListener('click', () => setLoginMode('signup'));
+  $('show-password').addEventListener('change', (e) => {
+    loginForm.elements.password.type = e.target.checked ? 'text' : 'password';
+  });
+
+  loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const form = e.currentTarget;
-    const error = $('login-error');
-    error.hidden = true;
+    const email = loginForm.elements.email.value.trim();
+    const password = loginForm.elements.password.value;
+    const submit = $('login-submit');
+    $('login-error').hidden = true;
+    $('login-info').hidden = true;
+    submit.disabled = true;
     try {
-      await Store.signIn(form.elements.email.value.trim(), form.elements.password.value);
+      if (currentEmail) await window.Notify.beforeSwitch(); // 別のアカウントに入り直すとき
+      if (loginMode === 'signup') {
+        const result = await Store.signUp(email, password);
+        if (!result.signedIn) {
+          loginForm.elements.password.value = '';
+          loginMessage('login-info', `${email} に確認のメールを送りました。メールの中のリンクを押すと登録が完了し、このページが開きます。`);
+          return;
+        }
+      } else {
+        await Store.signIn(email, password);
+      }
     } catch (err) {
       console.error(err);
-      error.textContent = 'ログインできませんでした。メールアドレスとパスワードを確認してください。';
-      error.hidden = false;
+      const text = String((err && err.message) || err);
+      const known = loginMode === 'signup' && SIGNUP_ERRORS.find(([pattern]) => pattern.test(text));
+      loginMessage('login-error', known
+        ? known[1]
+        : loginMode === 'signup'
+          ? '登録できませんでした。通信を確認して、もう一度試してください。'
+          : /not confirmed/i.test(text)
+            ? 'メールアドレスの確認がまだです。届いたメールの中のリンクを押してから、ログインしてください。'
+            : 'ログインできませんでした。メールアドレスとパスワードを確認してください。');
       return;
+    } finally {
+      submit.disabled = false;
     }
-    form.reset();
+    loginForm.reset();
+    loginForm.elements.password.type = 'password';
+    if (notifyReady) return location.reload(); // 別のアカウントで入り直したとき
     await showMain();
   });
 
+  $('account-add').addEventListener('click', showLogin);
+  $('login-back').addEventListener('click', showMain);
+
   $('logout').addEventListener('click', async () => {
     await window.Notify.beforeSignOut();
+    currentEmail = '';
     await Store.signOut();
+  });
+
+  // メニューの外を押したら閉じる
+  document.addEventListener('click', (e) => {
+    const menu = $('account');
+    if (menu.open && !menu.contains(e.target)) menu.open = false;
   });
 
   async function start() {

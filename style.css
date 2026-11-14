@@ -294,7 +294,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .link-rows li { display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
 
 /* ---- メールからの候補 ---- */
-.mail { margin-bottom: 24px; }
+section.mail { margin-bottom: 24px; }
 .item.mail { grid-template-columns: 1fr; border-left-color: var(--accent); }
 .item.mail .tools { grid-column: 1; }
 .item.mail .meta { margin-top: 0; margin-bottom: 2px; }
@@ -311,3 +311,45 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   .item.mail .tools { grid-column: auto; }
   .item.mail.editing { display: block; }
 }
+
+/* ---- ログイン・新規登録・アカウントの切り替え ---- */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 10px; background: var(--bg); }
+.tab { min-height: 44px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--text); font-weight: bold; box-shadow: 0 1px 3px rgb(0 0 0 / 0.15); }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--muted); }
+.check-row input { width: 20px; min-height: 20px; height: 20px; padding: 0; }
+.info { font-size: 0.9rem; padding: 10px 12px; border-radius: 8px; background: var(--soon-bg); color: var(--text); overflow-wrap: anywhere; }
+.saved { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.account-list { display: grid; gap: 6px; }
+.account-list:empty { display: none; }
+.account-list li { display: flex; gap: 6px; align-items: center; }
+.account-pick { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.login-back { display: block; margin: 14px auto 0; font-weight: normal; color: var(--muted); font-size: 0.88rem; }
+
+.account { position: relative; }
+.account summary.logout { color: var(--accent-text); }
+/* スマホ：名前の右にアカウント、その下に件数を並べる（メニューが画面の外に出ないように） */
+@media (max-width: 859px) {
+  .account { order: 1; margin-left: auto; }
+  .summary { order: 2; flex-basis: 100%; }
+}
+.account summary { display: inline-flex; align-items: center; list-style: none; cursor: pointer; }
+.account summary::-webkit-details-marker { display: none; }
+.account summary::after { content: "▾"; margin-left: 6px; }
+.account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 10;
+  width: min(300px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+.account-email { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }

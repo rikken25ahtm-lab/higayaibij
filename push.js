@@ -157,6 +157,17 @@
       // ログアウトした端末には報告を送らない
       this.beforeSignOut = () => turnOff().catch((error) => console.error(error));
 
+      // アカウントを切り替えるとき：いまのアカウントからこの端末の登録を外す。
+      // 端末の通知の許可はそのままなので、切り替えた先のアカウントで自動的に登録し直される
+      this.beforeSwitch = async () => {
+        try {
+          const sub = registration && await registration.pushManager.getSubscription();
+          if (sub) await Store.removePushSubscription(sub.endpoint);
+        } catch (error) {
+          console.error(error);
+        }
+      };
+
       try {
         await refresh();
       } catch (error) {
@@ -166,5 +177,6 @@
     },
 
     beforeSignOut: async () => {},
+    beforeSwitch: async () => {},
   };
 })(window);

@@ -12,6 +12,8 @@
   --today-bg: #fff1dc;
   --soon: #7a5d00;
   --soon-bg: #fbf3c9;
+  --green: #1b6e3c;
+  --green-bg: #e1f2e6;
   --radius: 12px;
   color-scheme: light dark;
 }
@@ -31,6 +33,8 @@
     --today-bg: #45300f;
     --soon: #ecd66a;
     --soon-bg: #3a3413;
+    --green: #7ed69b;
+    --green-bg: #173524;
   }
 }
 
@@ -288,7 +292,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   text-decoration: none;
   overflow-wrap: anywhere;
 }
-.links a.file-link::before { content: "📎"; margin-right: 4px; }
 .links a:hover { border-color: var(--accent); }
 .link-rows { display: grid; gap: 6px; font-size: 0.9rem; }
 .link-rows li { display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
@@ -408,3 +411,45 @@ section.mail { margin-bottom: 24px; }
 /* ---- カテゴリの名前を変える・なくす ---- */
 .cat-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .cat-form { display: grid; gap: 10px; margin: 0 0 12px; padding: 12px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface); }
+
+/* ---- 期限の色：2日を切ったら赤、5日以内は黄色、それより先は緑 ---- */
+.item.c-red { border-left-color: var(--overdue); }
+.item.c-yellow { border-left-color: #d9a400; }
+.item.c-green { border-left-color: var(--green); }
+.due.c-red { background: var(--overdue-bg); color: var(--overdue); font-weight: bold; }
+.due.c-yellow { background: var(--soon-bg); color: var(--soon); font-weight: bold; }
+.due.c-green { background: var(--green-bg); color: var(--green); }
+.repeat, .note-count { color: var(--muted); }
+
+/* ---- 直近 ---- */
+section.near { margin-bottom: 24px; }
+
+/* ---- 検索 ---- */
+.search { margin-bottom: 20px; }
+.search-row { display: flex; gap: 6px; align-items: center; }
+.search-row input { background: var(--surface); }
+.search-row .btn { flex: none; min-height: 44px; }
+.search-words { display: flex; gap: 6px; align-items: center; margin-top: 8px; padding-bottom: 4px; overflow-x: auto; scrollbar-width: thin; }
+.search-words .label { flex: none; font-size: 0.8rem; color: var(--muted); }
+.word-chip { flex: none; min-height: 36px; padding: 2px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 0.85rem; white-space: nowrap; cursor: pointer; }
+.word-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: bold; }
+
+/* ---- 添付・メールの種類 ---- */
+.links a .kind { margin-right: 6px; padding: 0 6px; border-radius: 4px; background: var(--accent); color: var(--accent-text); font-size: 0.72rem; font-weight: bold; white-space: nowrap; }
+.links a.kind-pdf .kind { background: var(--overdue); color: #fff; }
+.links a.kind-image .kind { background: var(--green); color: var(--bg); }
+.links a.kind-file .kind { background: var(--muted); color: var(--bg); }
+
+/* ---- メモと履歴（編集の中） ---- */
+.history { display: grid; gap: 6px; margin-bottom: 6px; }
+.history-row { display: grid; grid-template-columns: 5.2em 1fr auto; gap: 8px; align-items: start; padding: 8px 10px; border-radius: 8px; background: var(--bg); font-size: 0.9rem; }
+.history-row .when { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; padding-top: 2px; }
+.history-row .what { min-width: 0; }
+.history-row .links { margin-top: 0; }
+.history-row .links a { background: var(--surface); }
+.note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-row .from, .hint { color: var(--muted); font-size: 0.8rem; }
+
+/* ---- はじめての人への案内 ---- */
+.welcome { grid-column: 1 / -1; border-color: var(--accent); position: static; }
+.welcome ol { margin: 0 0 14px; padding-left: 1.4em; display: grid; gap: 6px; font-size: 0.95rem; }

@@ -2,8 +2,10 @@
   'use strict';
 
   const {
-    toDateKey, dueLevel, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
+    toDateKey, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
+    dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
+    itemText, mailText, matchesQuery, frequentWords,
   } = window.Logic;
   const config = window.HIGAYAIBIN_CONFIG || {};
   const Store =
@@ -23,6 +25,7 @@
   let toastTimer = null;
   let undoAction = null;
   let reportIds = new Set(); // 開いている報告に出てくる項目（一覧で目印をつける）
+  let query = '';            // 検索の言葉（空なら、検索していない）
 
   // 小さな DOM ヘルパー。文字は必ず textContent で入れる（HTMLとして解釈させない）。
   function el(tag, props, ...children) {
@@ -107,6 +110,7 @@
       progress: String(data.get('progress') || '').trim(),
       assignee: String(data.get('assignee') || '').trim(),
       due: String(data.get('due') || '') || null,
+      repeat: String(data.get('repeat') || ''),
     };
   }
 
@@ -118,34 +122,59 @@
 
   function render() {
     const today = toDateKey(new Date());
+    const searching = Boolean(query.trim());
     // なくなったカテゴリで絞り込んだままにしない
     const categories = categoriesOf(items);
     if (activeCategory !== null && !items.some((i) => inCategory(i, activeCategory))) activeCategory = null;
     if (activeCategory === '' && !categories.length) activeCategory = null;
-    const shown = items.filter((i) => inCategory(i, activeCategory));
-    const open = sortOpen(shown.filter((i) => i.status !== 'done'));
-    const done = sortDone(shown.filter((i) => i.status === 'done'));
-    renderCategories(categories);
 
-    openList.replaceChildren(...open.map((item) => renderItem(item, today)));
-    doneList.replaceChildren(...done.map((item) => renderItem(item, today)));
+    // 直近（期限が3日以内）は、カテゴリに関係なく一番上にまとめて出す。下の一覧には重ねて出さない。
+    // 検索しているときは、直近・カテゴリの区別をやめて、当たったものを全部（完了・メールの候補も）出す
+    const hit = (i) => matchesQuery(itemText(i), query);
+    const near = searching ? [] : sortOpen(items.filter((i) => isNear(i, today)));
+    const rest = searching ? items.filter(hit) : items.filter((i) => !isNear(i, today) && inCategory(i, activeCategory));
+    const open = sortOpen(rest.filter((i) => i.status !== 'done'));
+    const done = sortDone(rest.filter((i) => i.status === 'done'));
+    const shownMails = searching ? mails.filter((m) => matchesQuery(mailText(m), query)) : mails;
+    renderCategories(categories, today);
 
+    $('near').hidden = near.length === 0;
+    $('near-count').textContent = `${near.length}件`;
+    $('near-list').replaceChildren(...near.map((item) => renderItem(item, today, true)));
+    openList.replaceChildren(...open.map((item) => renderItem(item, today, searching)));
+    doneList.replaceChildren(...done.map((item) => renderItem(item, today, searching)));
+
+    $('list-name').textContent = searching ? '検索の結果' : near.length ? 'そのほかのやること' : 'やること';
     $('open-count').textContent = open.length ? `${open.length}件` : '';
     $('done-count').textContent = `${done.length}件`;
+    $('cats').hidden = searching || categories.length === 0;
+    if (searching) $('cat-tools').hidden = true;
+    $('how').hidden = searching;
     $('empty').hidden = open.length > 0;
-    $('empty').textContent = activeCategory !== null
-      ? 'このカテゴリに、残っているやることはありません。'
-      : done.length
-      ? '残っているやることはありません。'
-      : 'まだ項目がありません。上のフォームから追加してください。';
+    $('empty').textContent = searching
+      ? done.length || shownMails.length
+        ? '残っているやることには、当てはまるものがありません。'
+        : '当てはまるものが見つかりませんでした。言葉を短くするか、下の「よく出る言葉」を試してください。'
+      : activeCategory !== null
+        ? near.some((i) => inCategory(i, activeCategory))
+          ? 'このカテゴリの残りは、上の「直近」に出ているものだけです。'
+          : 'このカテゴリに、残っているやることはありません。'
+        : near.length
+          ? '直近のもののほかに、残っているやることはありません。'
+          : done.length
+            ? '残っているやることはありません。'
+            : 'まだ項目がありません。上のフォームから追加してください。';
     doneBlock.hidden = done.length === 0;
+    if (searching && done.length) doneBlock.open = true;
 
-    $('mail').hidden = mails.length === 0;
-    $('mail-count').textContent = mails.length ? `${mails.length}件` : '';
-    $('mail-list').replaceChildren(...mails.map((mail) => (mail.id === mailEditingId ? renderMailEditor(mail, open) : renderMail(mail))));
+    $('mail').hidden = shownMails.length === 0;
+    $('mail-count').textContent = shownMails.length ? `${shownMails.length}件` : '';
+    $('mail-list').replaceChildren(...shownMails.map((mail) => (mail.id === mailEditingId ? renderMailEditor(mail, sortOpen(items.filter((i) => i.status !== 'done'))) : renderMail(mail))));
 
     renderSummary(summarize(items, today));
     renderAssignees();
+    renderSearch();
+    renderWelcome();
   }
 
   function renderSummary(counts) {
@@ -162,8 +191,9 @@
   }
 
   // カテゴリで絞り込むボタン（数字は、残っているやることの件数）。カテゴリが1つもなければ出さない
-  function renderCategories(categories) {
-    const openItems = items.filter((i) => i.status !== 'done');
+  function renderCategories(categories, today) {
+    // 数字は、押したときに下の一覧に出る件数（直近のものは上に出ているので数えない）
+    const openItems = items.filter((i) => i.status !== 'done' && !isNear(i, today));
     const chip = (label, value, count) =>
       el('button', {
         type: 'button',
@@ -175,12 +205,12 @@
     // カテゴリを選んでいるときだけ、そのカテゴリの名前の変更・削除を出す
     $('cat-tools').hidden = !activeCategory || !$('cat-form').hidden;
     if (!activeCategory) $('cat-form').hidden = true;
-    $('cats').hidden = categories.length === 0;
     $('cats').replaceChildren(
       chip('すべて', null, openItems.length),
       ...categories.map((c) => chip(c, c, openItems.filter((i) => i.category === c).length)),
       ...(items.some((i) => !i.category) ? [chip('カテゴリなし', '', none)] : [])
     );
+    $('cats').hidden = categories.length === 0;
 
     // 追加フォームの選択肢。書きかけの選択は変えない
     const select = addForm.elements.category;
@@ -246,16 +276,18 @@
     $('assignees').replaceChildren(...names.map((name) => el('option', { value: name })));
   }
 
-  function renderItem(item, today) {
+  // showCategory：カテゴリの名前を必ず出す（直近・検索の結果のように、カテゴリが混ざる一覧で使う）
+  function renderItem(item, today, showCategory) {
     if (item.id === editingId) return renderEditor(item);
 
     const isDone = item.status === 'done';
-    const level = isDone ? 'none' : dueLevel(item.due, today);
+    const color = isDone ? 'none' : dueColor(item.due, today);
+    const noteCount = safeNotes(item.notes).length;
 
     const li = el(
       'li',
       {
-        class: `item ${isDone ? 'done' : level}${reportIds.has(item.id) ? ' reported' : ''}`,
+        class: `item ${isDone ? 'done' : 'c-' + color}${reportIds.has(item.id) ? ' reported' : ''}`,
         'data-id': item.id,
         onclick: (e) => {
           if (e.currentTarget.dataset.swiped) return; // スワイプの直後
@@ -279,10 +311,12 @@
         el(
           'p',
           { class: 'meta' },
-          item.due || !isDone ? el('span', { class: `due ${level}` }, dueLabel(item.due, today)) : null,
+          item.due || !isDone ? el('span', { class: `due c-${color}` }, dueLabel(item.due, today)) : null,
+          item.repeat && !isDone ? el('span', { class: 'repeat' }, `↻ ${repeatLabel(item.repeat)}`) : null,
           item.progress && !isDone ? el('span', { class: 'progress' }, item.progress) : null,
           item.assignee ? el('span', { class: 'assignee' }, `担当：${item.assignee}`) : null,
-          item.category && activeCategory === null ? el('span', { class: 'cat-tag' }, item.category) : null
+          item.category && (showCategory || activeCategory === null) ? el('span', { class: 'cat-tag' }, item.category) : null,
+          noteCount ? el('span', { class: 'note-count' }, `メモ ${noteCount}件`) : null
         ),
         renderLinks(item.attachments)
       ),
@@ -358,17 +392,25 @@
     if (openSwipe && !openSwipe.contains(e.target)) closeSwipe();
   });
 
-  // 添付（ドライブ）とメールへのリンク。別のタブで開く
+  // 添付（ドライブ）とメールへのリンク。1回押すと、別のタブで開く。
+  // 開く前に何の書類かわかるように、種類（PDF・写真・メール）を名前の前に出す
+  const KIND_LABELS = { pdf: 'PDF', image: '写真', file: '添付', mail: 'メール' };
+  const linkKind = (link) => (link.kind === 'mail' ? 'mail' : fileKind(link.name));
+
+  function linkAnchor(link, text) {
+    const kind = linkKind(link);
+    return el(
+      'a',
+      { href: link.url, target: '_blank', rel: 'noopener noreferrer', class: `kind-${kind}` },
+      el('span', { class: 'kind' }, KIND_LABELS[kind]),
+      text || link.name
+    );
+  }
+
   function renderLinks(list) {
     const links = safeLinks(list);
     if (!links.length) return null;
-    return el(
-      'p',
-      { class: 'links' },
-      ...links.map((link) =>
-        el('a', { href: link.url, target: '_blank', rel: 'noopener noreferrer', class: link.kind === 'mail' ? 'mail-link' : 'file-link' }, link.name)
-      )
-    );
+    return el('p', { class: 'links' }, ...links.map((link) => linkAnchor(link)));
   }
 
   const field = (label, control) => el('label', { class: 'field' }, el('span', null, label), control);
@@ -387,6 +429,13 @@
     );
     const assignee = el('input', { name: 'assignee', type: 'text', maxlength: 50, list: 'assignees' });
     const due = el('input', { name: 'due', type: 'date' });
+    const repeat = el(
+      'select',
+      { name: 'repeat' },
+      el('option', { value: '' }, '（繰り返さない）'),
+      ...REPEAT_CHOICES.map(([value, label]) => el('option', { value }, label))
+    );
+    repeat.value = values.repeat || '';
     content.value = values.content || '';
     action.value = values.action || '';
     progress.value = values.progress || '';
@@ -398,29 +447,46 @@
       field('必要な対応', action),
       field('進捗', progress),
       el('div', { class: 'field-row' }, field('誰に任せるか', assignee), field('期限', due)),
+      field('繰り返し（完了にすると、次の回ができます）', repeat),
     ];
   }
 
+  // 編集。下に「メモと履歴」が出る：メモ・メール・添付を、古い順に1本に並べる
   function renderEditor(item) {
-    // 「外す」を押したリンクは、保存するときに項目から外す（ドライブのファイルやメールは消えない）
-    let kept = safeLinks(item.attachments);
-    const linkRows = kept.map((link) => {
+    // 「外す」「消す」を押したものは、保存するときに項目から外す（ドライブのファイルやメールそのものは消えない）
+    const links = safeLinks(item.attachments);
+    const notes = safeNotes(item.notes);
+    const droppedLinks = new Set();
+    const droppedNotes = new Set();
+
+    const rows = timeline(item).map((entry) => {
+      const isNote = entry.kind === 'note';
+      const link = isNote ? null : links[entry.i];
       const row = el(
         'li',
-        null,
-        el('span', null, link.name),
+        { class: `history-row ${entry.kind}` },
+        el('span', { class: 'when' }, entry.at ? mailTime(entry.at) : ''),
+        el(
+          'div',
+          { class: 'what' },
+          isNote ? el('p', { class: 'note-text' }, entry.text) : el('p', { class: 'links' }, linkAnchor(link, entry.text)),
+          entry.from ? el('p', { class: 'from' }, `${entry.from} から`) : null
+        ),
         el('button', {
           type: 'button',
           class: 'btn small',
-          'aria-label': `「${link.name}」のリンクを外す`,
+          'aria-label': isNote ? `メモ「${entry.text.slice(0, 20)}」を消す` : `「${entry.text}」のリンクを外す`,
           onclick: () => {
-            kept = kept.filter((k) => k !== link);
+            (isNote ? droppedNotes : droppedLinks).add(entry.i);
             row.remove();
+            if (!list.children.length) list.hidden = true;
           },
-        }, '外す')
+        }, isNote ? '消す' : '外す')
       );
       return row;
     });
+    const list = el('ul', { class: 'history', hidden: rows.length === 0 }, ...rows);
+    const note = el('textarea', { name: 'note', rows: 2, maxlength: 1000, placeholder: '例：電話した。金曜に折り返しをもらう' });
 
     const form = el(
       'form',
@@ -431,7 +497,12 @@
           e.preventDefault();
           const fields = readForm(form);
           if (!fields.content) return;
-          if (linkRows.length !== kept.length) fields.attachments = kept;
+          if (droppedLinks.size) fields.attachments = links.filter((l, i) => !droppedLinks.has(i));
+          const text = note.value.trim();
+          if (droppedNotes.size || text) {
+            fields.notes = notes.filter((n, i) => !droppedNotes.has(i));
+            if (text) fields.notes.push({ at: new Date().toISOString(), text });
+          }
           await Store.update(item.id, fields);
           editingId = null;
           await reload();
@@ -441,7 +512,14 @@
         },
       },
       ...itemFields(item),
-      linkRows.length ? el('div', { class: 'field' }, el('span', null, '添付・メールのリンク'), el('ul', { class: 'link-rows' }, ...linkRows)) : null,
+      el(
+        'div',
+        { class: 'field history-block' },
+        el('span', null, 'メモと履歴'),
+        list,
+        note,
+        el('p', { class: 'hint' }, 'メモは、書いて「保存する」を押すと、日時つきで残ります。')
+      ),
       el(
         'div',
         { class: 'form-actions' },
@@ -599,9 +677,17 @@
   async function toggleDone(item) {
     const wasDone = item.status === 'done';
     await Store.update(item.id, { status: wasDone ? 'open' : 'done' });
+    // 繰り返しの用事は、完了にしたら次の回を作る（メモと添付は、終わった回のほうに残す）
+    let next = null;
+    if (!wasDone && repeatLabel(item.repeat)) {
+      const today = toDateKey(new Date());
+      const { content, category, action, assignee, repeat } = item;
+      next = await Store.add({ content, category, action, progress: '', assignee, repeat, due: nextDue(item.due, repeat, today) });
+    }
     await reload();
     if (!wasDone) {
-      showToast('完了にしました', async () => {
+      showToast(next ? `完了にしました。次の回（${dueLabel(next.due, toDateKey(new Date()))}）を作りました` : '完了にしました', async () => {
+        if (next) await Store.remove(next.id);
         await Store.update(item.id, { status: 'open' });
         await reload();
       });
@@ -648,12 +734,103 @@
     addForm.elements.categoryNew.hidden = true;
     addForm.elements.categoryNew.required = false;
     addForm.classList.remove('expanded');
+    if (query) setQuery(''); // 検索中に足したものが、結果に当たらず見えなくならないように
     await reload();
     addForm.elements.content.focus();
   });
 
   // スマホでは一覧を上に見せたいので、「内容」に触れるまで残りの欄をたたんでおく
   addForm.addEventListener('focusin', () => addForm.classList.add('expanded'));
+
+  // ---- 検索 ----
+  const searchInput = $('search-input');
+
+  function setQuery(value) {
+    query = value;
+    if (searchInput.value !== value) searchInput.value = value;
+    editingId = null;
+    render();
+  }
+
+  searchInput.addEventListener('input', () => setQuery(searchInput.value));
+  $('search-clear').addEventListener('click', () => {
+    setQuery('');
+    searchInput.focus();
+  });
+
+  // よく出る言葉：やること・メモ・メールの候補（件名と本文）に何度も出てくる言葉を、探す手がかりとして出す。
+  // 項目やメールが増えるほど、その人の言葉に合っていく
+  function renderSearch() {
+    $('search-clear').hidden = !query;
+    $('search').hidden = items.length + mails.length === 0;
+    // カテゴリ・担当・進捗は、ボタンや欄で選べるので数えない
+    const words = frequentWords([...items.map((i) => itemText({ ...i, category: '', assignee: '', progress: '' })), ...mails.map(mailText)], 8);
+    $('search-words').hidden = words.length === 0;
+    $('search-words').replaceChildren(
+      el('span', { class: 'label' }, 'よく出る言葉'),
+      ...words.map((word) =>
+        el('button', {
+          type: 'button',
+          class: 'word-chip',
+          'aria-pressed': String(query.trim() === word),
+          onclick: () => setQuery(query.trim() === word ? '' : word),
+        }, word)
+      )
+    );
+  }
+
+  // ---- はじめての人への案内 ----
+  // まだ項目が1つもない人にだけ出す。項目を足すか「閉じる」を押したら、その端末ではもう出さない
+  const welcomeKey = () => `higayaibin.welcome.v1.${currentEmail || 'local'}`;
+
+  function welcomeSeen() {
+    try {
+      return localStorage.getItem(welcomeKey()) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function markWelcomeSeen() {
+    try {
+      localStorage.setItem(welcomeKey(), '1');
+    } catch (e) { /* 覚えられなくても、案内がもう一度出るだけ */ }
+  }
+
+  function renderWelcome() {
+    if (items.length && !welcomeSeen()) markWelcomeSeen();
+    $('welcome').hidden = items.length > 0 || welcomeSeen();
+  }
+
+  $('welcome-close').addEventListener('click', () => {
+    markWelcomeSeen();
+    render();
+  });
+
+  $('welcome-examples').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    const day = (n) => {
+      const d = new Date();
+      d.setDate(d.getDate() + n);
+      return toDateKey(d);
+    };
+    const examples = [
+      { content: '粗大ごみの回収を申し込む', category: '家のこと', action: '市のサイトで日時を予約する', progress: 'まだ', assignee: '自分', due: day(1) },
+      { content: '歯医者を予約する', category: '家のこと', action: '電話する（平日の午前）', progress: 'まだ', assignee: '自分', due: day(4) },
+      { content: '家賃を振り込む', category: 'お金', action: '', progress: '', assignee: '自分', due: day(20), repeat: 'monthly' },
+    ];
+    const added = [];
+    try {
+      for (const example of examples) added.push(await Store.add(example));
+    } finally {
+      e.currentTarget.disabled = false;
+      await reload();
+    }
+    showToast('例を3件入れました。押すと編集、丸を押すと完了です', async () => {
+      for (const item of added) await Store.remove(item.id);
+      await reload();
+    });
+  });
 
   // ---- AIの要約を貼り付けて追加 ----
   const pasteText = $('paste-text');

@@ -61,6 +61,18 @@
       <ul id="report-lines"></ul>
       <button type="button" class="btn small" id="report-close">閉じる</button>
     </section>
+    <section class="panel welcome" id="welcome" hidden aria-labelledby="welcome-title">
+      <h2 id="welcome-title">はじめに</h2>
+      <ol>
+        <li><strong>やることを足す</strong>：「内容」に書いて「追加する」。期限を入れると、近い順に並びます。</li>
+        <li><strong>色で急ぎがわかる</strong>：期限まで2日を切ると赤、5日以内は黄色、それより先は緑。3日以内のものは、一番上の「直近」に出ます。</li>
+        <li><strong>終わったら丸を押す</strong>：項目を押すと、編集とメモができます。</li>
+      </ol>
+      <div class="notify-actions">
+        <button type="button" class="btn primary" id="welcome-examples">例を3件入れてみる</button>
+        <button type="button" class="btn" id="welcome-close">閉じる</button>
+      </div>
+    </section>
     <section class="panel" aria-labelledby="add-title">
       <h2 id="add-title">やることを追加</h2>
       <form id="add-form" class="item-form" autocomplete="off">
@@ -97,6 +109,16 @@
               <input name="due" type="date">
             </label>
           </div>
+          <label class="field">
+            <span>繰り返し（完了にすると、次の回ができます）</span>
+            <select name="repeat">
+              <option value="">（繰り返さない）</option>
+              <option value="daily">毎日</option>
+              <option value="weekly">毎週</option>
+              <option value="monthly">毎月</option>
+              <option value="yearly">毎年</option>
+            </select>
+          </label>
         </div>
         <button type="submit" class="btn primary">追加する</button>
       </form>
@@ -125,7 +147,20 @@
         <ul class="items" id="mail-list"></ul>
       </section>
 
-      <h2 id="list-title">やること <span class="count" id="open-count"></span></h2>
+      <div class="search" id="search" hidden role="search">
+        <div class="search-row">
+          <input id="search-input" type="search" placeholder="探す（内容・相手・メモ・メールの件名）" aria-label="やることを探す" autocomplete="off" enterkeyhint="search">
+          <button type="button" class="btn small" id="search-clear" hidden>やめる</button>
+        </div>
+        <div class="search-words" id="search-words" hidden></div>
+      </div>
+
+      <section class="near" id="near" hidden aria-labelledby="near-title">
+        <h2 id="near-title">直近（3日以内） <span class="count" id="near-count"></span></h2>
+        <ul class="items" id="near-list"></ul>
+      </section>
+
+      <h2 id="list-title"><span id="list-name">やること</span> <span class="count" id="open-count"></span></h2>
       <div class="cats" id="cats" hidden role="group" aria-label="カテゴリで絞り込む"></div>
       <div class="cat-tools" id="cat-tools" hidden>
         <button type="button" class="btn small" id="cat-rename">カテゴリの名前を変える</button>

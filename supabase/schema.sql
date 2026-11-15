@@ -11,8 +11,10 @@ create table public.items (
   assignee    text not null default '',                                      -- 誰に任せるか
   due         date,                                                          -- 期限
   status      text not null default 'open' check (status in ('open', 'done')),
-  priority    text check (priority in ('near', 'mid', 'last')),              -- 直近／中期／最後（後の段階で使う）
-  attachments jsonb not null default '[]'::jsonb,                            -- ドライブのリンク（後の段階で使う）
+  priority    text check (priority in ('near', 'mid', 'last')),              -- 使っていない（直近は、期限から自動で決める）
+  attachments jsonb not null default '[]'::jsonb,                            -- 添付（ドライブ）とメールのリンク
+  notes       jsonb not null default '[]'::jsonb,                            -- メモ [{ at, text }]
+  repeat      text not null default '',                                      -- 繰り返し（daily / weekly / monthly / yearly）
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

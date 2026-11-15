@@ -47,3 +47,70 @@ test('集計は未完了だけを数える', () => {
   ];
   assert.deepEqual(L.summarize(items, TODAY), { overdue: 1, today: 1, soon: 1 });
 });
+
+test('期限の色：2日を切ったら赤、5日以内は黄色、それより先は緑', () => {
+  assert.equal(L.dueColor('2026-11-10', TODAY), 'red');
+  assert.equal(L.dueColor('2026-11-14', TODAY), 'red');
+  assert.equal(L.dueColor('2026-11-15', TODAY), 'red');
+  assert.equal(L.dueColor('2026-11-16', TODAY), 'yellow');
+  assert.equal(L.dueColor('2026-11-19', TODAY), 'yellow');
+  assert.equal(L.dueColor('2026-11-20', TODAY), 'green');
+  assert.equal(L.dueColor(null, TODAY), 'none');
+});
+
+test('直近：終わっていなくて、期限が3日以内（期限切れを含む）', () => {
+  assert.equal(L.isNear({ status: 'open', due: '2026-11-17' }, TODAY), true);
+  assert.equal(L.isNear({ status: 'open', due: '2026-11-01' }, TODAY), true);
+  assert.equal(L.isNear({ status: 'open', due: '2026-11-18' }, TODAY), false);
+  assert.equal(L.isNear({ status: 'done', due: '2026-11-14' }, TODAY), false);
+  assert.equal(L.isNear({ status: 'open', due: null }, TODAY), false);
+});
+
+test('繰り返し：次の回の期限', () => {
+  assert.equal(L.nextDue('2026-11-14', 'daily', TODAY), '2026-11-15');
+  assert.equal(L.nextDue('2026-11-14', 'weekly', TODAY), '2026-11-21');
+  assert.equal(L.nextDue('2026-11-30', 'monthly', TODAY), '2026-12-30');
+  assert.equal(L.nextDue('2026-01-31', 'monthly', '2026-01-31'), '2026-02-28'); // 31日のない月は月末
+  assert.equal(L.nextDue('2024-02-29', 'yearly', TODAY), '2027-02-28');
+  assert.equal(L.nextDue('2026-10-01', 'weekly', TODAY), '2026-11-19'); // 遅れて完了にしても、過去の日付にしない
+  assert.equal(L.nextDue(null, 'weekly', TODAY), '2026-11-21');         // 期限なしは今日から
+  assert.equal(L.nextDue('2026-11-14', '', TODAY), null);
+  assert.equal(L.repeatLabel('monthly'), '毎月');
+});
+
+test('メモと履歴：古い順に1本に並べる', () => {
+  const item = {
+    notes: [{ at: '2026-11-10T02:00:00Z', text: ' 電話した ' }, { text: '' }, null],
+    attachments: [
+      { name: '見積書.pdf', url: 'https://drive.google.com/file/d/1/view', at: '2026-11-09T01:00:00Z', from: '山田' },
+      { name: 'メールを開く', kind: 'mail', url: 'https://mail.google.com/x', at: '2026-11-12T01:00:00Z', subject: '再見積' },
+      { name: '昔のリンク', url: 'https://a.example/b' },
+    ],
+  };
+  assert.deepEqual(L.timeline(item).map((e) => [e.kind, e.i, e.text]),
+    [['file', 2, '昔のリンク'], ['file', 0, '見積書.pdf'], ['note', 0, '電話した'], ['mail', 1, '再見積']]);
+  assert.deepEqual(L.timeline({}), []);
+  assert.equal(L.fileKind('請求書.PDF'), 'pdf');
+  assert.equal(L.fileKind('現場.jpeg'), 'image');
+  assert.equal(L.fileKind('表.xlsx'), 'file');
+  assert.equal(L.fileKind('名前だけ'), 'file');
+});
+
+test('検索：全角・半角・カタカナ・ひらがなの違いを気にしない。言葉が全部入っていれば当たり', () => {
+  const item = { content: 'ガス会社にＴＥＬ', action: '', notes: [{ at: '', text: '見積もりは来週' }], attachments: [{ name: 'a.pdf', url: 'https://a.example/a', subject: '開栓の件', from: '東京ガス' }] };
+  const text = L.itemText(item);
+  assert.equal(L.matchesQuery(text, 'がす tel'), true);
+  assert.equal(L.matchesQuery(text, '見積もり'), true);
+  assert.equal(L.matchesQuery(text, '開栓 東京'), true);
+  assert.equal(L.matchesQuery(text, 'ガス 水道'), false);
+  assert.equal(L.matchesQuery(text, '  '), true);
+  assert.equal(L.matchesQuery(L.mailText({ sender: '山田 <y@example.com>', subject: '請求書', excerpt: '振込先は…' }), '振込'), true);
+});
+
+test('よく出る言葉：2つ以上の文に出てくる言葉を、多い順に', () => {
+  const words = L.frequentWords(['工事の見積もりが届いた', '見積もりを比べる', '工事の日を決める', '見積もりの返事', 'これはこれ'], 8);
+  assert.equal(words[0], '見積もり');
+  assert.ok(words.includes('工事'));
+  assert.ok(!words.includes('これ'));
+  assert.deepEqual(L.frequentWords(['一度だけの言葉'], 8), []);
+});

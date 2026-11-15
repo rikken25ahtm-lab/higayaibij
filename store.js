@@ -44,7 +44,9 @@
         assignee: fields.assignee || '',
         due: fields.due || null, // 'YYYY-MM-DD'
         status: 'open', // 'open' | 'done'
-        priority: null, // 後の段階で使う：'near'（直近）| 'mid'（中期）| 'last'（最後）
+        priority: null, // 使っていない（直近は、期限から自動で決める）
+        repeat: fields.repeat || '', // 繰り返し：'' | 'daily' | 'weekly' | 'monthly' | 'yearly'
+        notes: fields.notes || [], // メモ [{ at, text }]
         attachments: fields.attachments || [], // ドライブのリンク [{ name, url }]
         createdAt: now,
         updatedAt: now,

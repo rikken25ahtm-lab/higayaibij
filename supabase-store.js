@@ -14,6 +14,8 @@
       status: r.status,
       priority: r.priority || null,
       attachments: r.attachments || [],
+      repeat: r.repeat || '',
+      notes: r.notes || [],
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
@@ -21,7 +23,7 @@
 
   const COLUMNS = {
     id: 'id', content: 'content', category: 'category', action: 'action', progress: 'progress', assignee: 'assignee', due: 'due',
-    status: 'status', priority: 'priority', attachments: 'attachments',
+    status: 'status', priority: 'priority', attachments: 'attachments', repeat: 'repeat', notes: 'notes',
     createdAt: 'created_at', updatedAt: 'updated_at',
   };
 
@@ -38,22 +40,32 @@
     return data;
   }
 
-  // 「進捗」の列をまだ Supabase に追加していない場合（supabase/add-progress.sql が未実行）でも、
-  // 進捗が空なら今までどおり保存できるようにする。進捗に文字があるときは、黙って捨てずに失敗させる。
+  // あとから足した列（進捗・カテゴリ・繰り返し・メモ）を、まだ Supabase に追加していない場合でも、
+  // その欄が空なら今までどおり保存できるようにする。中身があるときは、黙って捨てずに理由を伝える。
+  const LATER_COLUMNS = [
+    ['progress', '進捗', 'supabase/add-progress.sql'],
+    ['category', 'カテゴリ', 'supabase/add-category.sql'],
+    ['repeat', '繰り返し', 'supabase/add-notes.sql'],
+    ['notes', 'メモ', 'supabase/add-notes.sql'],
+  ];
+  const isEmpty = (value) => value == null || value === '' || (Array.isArray(value) && value.length === 0);
+
   async function send(row, run) {
     const result = await run(row);
     if (result.error && result.error.code === 'PGRST204') {
-      // 「カテゴリ」も同じ（supabase/add-category.sql が未実行）。空なら外して保存し、文字があるときは理由を伝える
+      const message = String(result.error.message || '');
       const rest = { ...row };
-      for (const column of ['progress', 'category']) {
-        if (column in rest && !rest[column]) delete rest[column];
+      for (const [column, label, file] of LATER_COLUMNS) {
+        if (!(column in rest)) continue;
+        if (isEmpty(rest[column])) {
+          delete rest[column];
+        } else if (message.includes(`'${column}'`)) {
+          const error = new Error(`${label}の列がまだありません`);
+          error.userMessage = `${label}を使うには、先に Supabase で ${file} を実行してください。`;
+          throw error;
+        }
       }
-      if (rest.category) {
-        const error = new Error('カテゴリの列がまだありません');
-        error.userMessage = 'カテゴリを使うには、先に Supabase で supabase/add-category.sql を実行してください。';
-        throw error;
-      }
-      if (Object.keys(rest).length < Object.keys(row).length) return unwrap(await run(rest));
+      if (Object.keys(rest).length < Object.keys(row).length) return send(rest, run);
     }
     return unwrap(result);
   }
@@ -130,6 +142,8 @@
         const { content, category, action, progress, assignee, due } = fields;
         const row = toRow({ content, category: category || '', action, progress, assignee, due });
         if (fields.attachments && fields.attachments.length) row.attachments = fields.attachments;
+        if (fields.repeat) row.repeat = fields.repeat;
+        if (fields.notes && fields.notes.length) row.notes = fields.notes;
         return fromRow(await send(row, (r) => table().insert(r).select().single()));
       },
 

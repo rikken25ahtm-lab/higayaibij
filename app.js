@@ -18,7 +18,12 @@
   const doneBlock = $('done-block');
   const toast = $('toast');
 
-  let items = [];
+  let allItems = [];         // このアカウントの項目すべて
+  let items = [];            // いま開いているプロジェクトの項目（プロジェクトを使っていなければ、すべて）
+  let projects = null;       // プロジェクトの一覧。null は、まだ使えない（Supabase の準備がまだ）
+  let currentProject;        // 開いているプロジェクトの id。null は「プロジェクトなし」、undefined は「選んでいない」（最初の画面）
+  let projectLoaded = false; // 最後に使ったプロジェクトを、もう読んだか
+  let projectEditingId = null; // 最初の画面で、名前を変えているプロジェクト
   let mails = []; // メールからの候補（まだ片づけていないもの）
   let editingId = null;
   let mailEditingId = null; // 「やることに追加」を開いている候補
@@ -114,14 +119,190 @@
     };
   }
 
+  // 項目は、いま開いているプロジェクトに入れる
+  function addItem(fields) {
+    return Store.add({ ...fields, projectId: projects ? currentProject || null : null });
+  }
+
+  const inProject = (item, id) => (item.projectId || null) === (id || null);
+
   async function reload() {
-    [items, mails] = await Promise.all([Store.list(), Store.listCandidates ? Store.listCandidates() : []]);
+    [allItems, mails, projects] = await Promise.all([
+      Store.list(),
+      Store.listCandidates ? Store.listCandidates() : [],
+      Store.listProjects(),
+    ]);
     if (!mails.some((m) => m.id === mailEditingId)) mailEditingId = null;
+    if (projects) {
+      // 一度閉じても、最後に使ったプロジェクトを開く
+      if (!projectLoaded) {
+        projectLoaded = true;
+        currentProject = readLastProject();
+      }
+      // なくなったプロジェクト・空になった「プロジェクトなし」を開いたままにしない
+      if (typeof currentProject === 'string' && !projects.some((p) => p.id === currentProject)) currentProject = undefined;
+      if (currentProject === null && !allItems.some((i) => inProject(i, null))) currentProject = undefined;
+    }
+    items = projects && currentProject !== undefined ? allItems.filter((i) => inProject(i, currentProject)) : projects ? [] : allItems;
     render();
   }
 
+  // ---- プロジェクト（最初の画面） ----
+  const projectKey = () => `higayaibin.project.v1.${currentEmail || 'local'}`;
+
+  function readLastProject() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(projectKey()) || 'null');
+      return saved && 'id' in saved ? saved.id : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  function openProject(id) {
+    currentProject = id;
+    try {
+      if (id === undefined) localStorage.removeItem(projectKey());
+      else localStorage.setItem(projectKey(), JSON.stringify({ id }));
+    } catch (e) { /* 覚えられなくても、開くことはできる */ }
+    editingId = null;
+    projectEditingId = null;
+    query = '';
+    $('search-input').value = '';
+    activeCategory = null;
+    items = id === undefined ? [] : allItems.filter((i) => inProject(i, id));
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  const projectName = (id) => (id === null ? 'プロジェクトなし' : (projects.find((p) => p.id === id) || {}).name || '');
+
+  // 最初の画面：プロジェクトを選ぶ・作る・名前を変える・なくす
+  function renderHome(today) {
+    const atHome = Boolean(projects) && currentProject === undefined;
+    $('home').hidden = !atHome;
+    $('main').hidden = atHome;
+    $('summary').hidden = atHome;
+    $('project-switch').hidden = !projects || atHome;
+    if (projects && !atHome) $('project-switch').textContent = `◂ ${projectName(currentProject)}`;
+    if (!atHome) return;
+
+    const card = (id, name) => {
+      const mine = allItems.filter((i) => inProject(i, id) && i.status !== 'done');
+      const near = mine.filter((i) => isNear(i, today)).length;
+      if (id && id === projectEditingId) return renderProjectEditor(id, name);
+      return el(
+        'li',
+        { class: 'project' },
+        el(
+          'button',
+          { type: 'button', class: 'project-open', onclick: () => openProject(id) },
+          el('span', { class: 'project-name' }, name),
+          el('span', { class: 'project-counts' }, `残り ${mine.length}件`, near ? el('span', { class: 'near-count' }, `直近 ${near}件`) : null)
+        ),
+        id
+          ? el(
+              'div',
+              { class: 'project-tools' },
+              el('button', { type: 'button', class: 'btn small', onclick: () => { projectEditingId = id; render(); } }, '名前を変える'),
+              el('button', { type: 'button', class: 'btn small', onclick: () => removeProject(id, name) }, 'なくす')
+            )
+          : renderMoveAll()
+      );
+    };
+    const loose = allItems.some((i) => inProject(i, null));
+    $('project-list').replaceChildren(
+      ...projects.map((p) => card(p.id, p.name)),
+      ...(loose ? [card(null, 'プロジェクトなし')] : [])
+    );
+    $('home-lead').textContent = projects.length
+      ? 'プロジェクトを押すと、その中のやることが開きます。'
+      : 'やることを入れる箱（プロジェクト）を作りましょう。あとから増やせます。';
+    // まだ作っていない名前を、例として出す
+    const examples = ['仕事関係', 'ウエディング', '日常生活'].filter((name) => !projects.some((p) => p.name === name));
+    $('project-examples').hidden = examples.length === 0;
+    $('project-examples').replaceChildren(
+      el('span', { class: 'label' }, '例'),
+      ...examples.map((name) => el('button', { type: 'button', class: 'word-chip', onclick: () => createProject(name) }, name))
+    );
+  }
+
+  function renderProjectEditor(id, name) {
+    const input = el('input', { name: 'name', type: 'text', maxlength: 50, required: true, 'aria-label': 'プロジェクトの名前' });
+    input.value = name;
+    const cancel = () => { projectEditingId = null; render(); };
+    const form = el(
+      'form',
+      {
+        class: 'project-form',
+        autocomplete: 'off',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const to = input.value.trim().slice(0, 50);
+          if (!to) return;
+          if (to !== name) await Store.renameProject(id, to);
+          projectEditingId = null;
+          await reload();
+        },
+        onkeydown: (e) => { if (e.key === 'Escape') cancel(); },
+      },
+      input,
+      el('button', { type: 'button', class: 'btn', onclick: cancel }, 'やめる'),
+      el('button', { type: 'submit', class: 'btn primary' }, '保存する')
+    );
+    setTimeout(() => input.focus(), 0);
+    return el('li', { class: 'project editing' }, form);
+  }
+
+  // 「プロジェクトなし」の項目を、まとめてプロジェクトに入れる（プロジェクトを使う前からあった項目のため）
+  function renderMoveAll() {
+    if (!projects.length) return null;
+    const select = el('select', { 'aria-label': '移す先のプロジェクト' }, ...projects.map((p) => el('option', { value: p.id }, p.name)));
+    const button = el('button', {
+      type: 'button',
+      class: 'btn small',
+      onclick: async () => {
+        const moved = allItems.filter((i) => inProject(i, null));
+        const to = select.value;
+        if (!to || !confirm(`「プロジェクトなし」の${moved.length}件を、全部「${projectName(to)}」に入れますか？`)) return;
+        button.disabled = true;
+        for (const item of moved) await Store.update(item.id, { projectId: to });
+        await reload();
+        showToast(`${moved.length}件を入れました`, async () => {
+          for (const item of moved) await Store.update(item.id, { projectId: null });
+          await reload();
+        });
+      },
+    }, 'に全部入れる');
+    return el('div', { class: 'project-tools move-all' }, select, button);
+  }
+
+  async function createProject(name) {
+    const clean = String(name || '').trim().slice(0, 50);
+    if (!clean) return;
+    if (projects.some((p) => p.name === clean)) return showToast(`「${clean}」は、もうあります`, null);
+    const project = await Store.addProject(clean);
+    $('project-new').reset();
+    await reload();
+    openProject(project.id);
+  }
+
+  async function removeProject(id, name) {
+    const count = allItems.filter((i) => inProject(i, id)).length;
+    if (!confirm(`プロジェクト「${name}」をなくしますか？\n中の${count}件の項目は消えず、「プロジェクトなし」になります。`)) return;
+    await Store.removeProject(id);
+    await reload();
+  }
+
+  $('project-new').addEventListener('submit', (e) => {
+    e.preventDefault();
+    createProject(e.currentTarget.elements.name.value);
+  });
+  $('project-switch').addEventListener('click', () => openProject(undefined));
+
   function render() {
     const today = toDateKey(new Date());
+    renderHome(today);
     const searching = Boolean(query.trim());
     // なくなったカテゴリで絞り込んだままにしない
     const categories = categoriesOf(items);
@@ -237,7 +418,8 @@
   // 元に戻すときは、変える前にそのカテゴリだった項目だけを戻す
   async function changeCategory(from, to, message) {
     const ids = items.filter((i) => i.category === from).map((i) => i.id);
-    await Store.renameCategory(from, to);
+    // 同じ名前のカテゴリが別のプロジェクトにあっても、そちらは変えない
+    for (const id of ids) await Store.update(id, { category: to });
     catForm.hidden = true;
     activeCategory = to || null;
     try {
@@ -486,6 +668,16 @@
       return row;
     });
     const list = el('ul', { class: 'history', hidden: rows.length === 0 }, ...rows);
+    // ほかのプロジェクトへ移す
+    const projectSelect = projects && projects.length
+      ? el(
+          'select',
+          { 'aria-label': 'プロジェクト' },
+          ...(item.projectId ? [] : [el('option', { value: '' }, 'プロジェクトなし')]),
+          ...projects.map((p) => el('option', { value: p.id }, p.name))
+        )
+      : null;
+    if (projectSelect) projectSelect.value = item.projectId || '';
     const note = el('textarea', { name: 'note', rows: 2, maxlength: 1000, placeholder: '例：電話した。金曜に折り返しをもらう' });
 
     const form = el(
@@ -503,15 +695,22 @@
             fields.notes = notes.filter((n, i) => !droppedNotes.has(i));
             if (text) fields.notes.push({ at: new Date().toISOString(), text });
           }
+          const moved = projectSelect && (projectSelect.value || null) !== (item.projectId || null);
+          if (moved) fields.projectId = projectSelect.value || null;
           await Store.update(item.id, fields);
           editingId = null;
           await reload();
+          if (moved) showToast(`「${projectName(fields.projectId)}」に移しました`, async () => {
+            await Store.update(item.id, { projectId: item.projectId || null });
+            await reload();
+          });
         },
         onkeydown: (e) => {
           if (e.key === 'Escape') cancelEdit();
         },
       },
       ...itemFields(item),
+      projectSelect ? field('プロジェクト（変えると、この項目が移ります）', projectSelect) : null,
       el(
         'div',
         { class: 'field history-block' },
@@ -637,7 +836,7 @@
       };
     } else {
       if (!fields.content) return;
-      const item = await Store.add({ ...fields, attachments: links });
+      const item = await addItem({ ...fields, attachments: links });
       await Store.resolveCandidate(mail.id, 'added', item.id);
       message = 'やることに追加しました';
       undo = async () => {
@@ -682,7 +881,7 @@
     if (!wasDone && repeatLabel(item.repeat)) {
       const today = toDateKey(new Date());
       const { content, category, action, assignee, repeat } = item;
-      next = await Store.add({ content, category, action, progress: '', assignee, repeat, due: nextDue(item.due, repeat, today) });
+      next = await addItem({ content, category, action, progress: '', assignee, repeat, due: nextDue(item.due, repeat, today) });
     }
     await reload();
     if (!wasDone) {
@@ -728,7 +927,7 @@
     e.preventDefault();
     const fields = readForm(addForm);
     if (!fields.content) return;
-    await Store.add(fields);
+    await addItem(fields);
     addForm.reset();
     addCategoryChosen = false;
     addForm.elements.categoryNew.hidden = true;
@@ -821,7 +1020,7 @@
     ];
     const added = [];
     try {
-      for (const example of examples) added.push(await Store.add(example));
+      for (const example of examples) added.push(await addItem(example));
     } finally {
       e.currentTarget.disabled = false;
       await reload();
@@ -914,7 +1113,7 @@
     try {
       for (const c of ready) {
         const { content, category, action, progress, assignee, due } = c;
-        added.push(await Store.add({ content, category, action, progress, assignee, due }));
+        added.push(await addItem({ content, category, action, progress, assignee, due }));
       }
       pasteText.value = '';
       renderCandidates();
@@ -930,7 +1129,7 @@
   });
 
   Store.onChange(() => {
-    if (!editingId && !mailEditingId && !$('main').hidden) reload();
+    if (!editingId && !mailEditingId && !projectEditingId && $('login').hidden) reload();
   });
 
   // 開きっぱなしで日付が変わっても、期限の表示を正しく保つ
@@ -1033,6 +1232,9 @@
 
   function showLogin() {
     items = [];
+    allItems = [];
+    $('home').hidden = true;
+    $('project-switch').hidden = true;
     mails = [];
     editingId = null;
     mailEditingId = null;

@@ -4,6 +4,20 @@
   'use strict';
 
   const KEY = 'higayaibin.items.v1';
+  const PROJECTS_KEY = 'higayaibin.projects.v1';
+
+  function readProjects() {
+    try {
+      const list = JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeProjects(list) {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(list));
+  }
 
   function readAll() {
     try {
@@ -38,6 +52,7 @@
       const item = {
         id: newId(),
         content: fields.content,
+        projectId: fields.projectId || null, // どのプロジェクトの項目か（null は「プロジェクトなし」）
         category: fields.category || '',
         action: fields.action || '',
         progress: fields.progress || '',
@@ -64,6 +79,27 @@
       items[index] = { ...items[index], ...patch, id, updatedAt: new Date().toISOString() };
       writeAll(items);
       return items[index];
+    },
+
+    // ---- プロジェクト ----
+    async listProjects() {
+      return readProjects();
+    },
+
+    async addProject(name) {
+      const project = { id: newId(), name, createdAt: new Date().toISOString() };
+      writeProjects([...readProjects(), project]);
+      return project;
+    },
+
+    async renameProject(id, name) {
+      writeProjects(readProjects().map((p) => (p.id === id ? { ...p, name } : p)));
+    },
+
+    // プロジェクトをなくす。中の項目は消さず、「プロジェクトなし」にする
+    async removeProject(id) {
+      writeProjects(readProjects().filter((p) => p.id !== id));
+      writeAll(readAll().map((i) => (i.projectId === id ? { ...i, projectId: null } : i)));
     },
 
     // カテゴリの名前を変える（to が空なら、そのカテゴリをなくす）。項目は消えない

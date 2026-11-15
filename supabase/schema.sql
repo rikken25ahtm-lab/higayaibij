@@ -28,3 +28,5 @@ create policy "自分の項目だけ" on public.items
   with check (auth.uid() = user_id);
 
 grant select, insert, update, delete on public.items to authenticated;
+
+-- プロジェクト（やることを入れる大きな箱）は、続けて supabase/add-projects.sql を Run して作ります。

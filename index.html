@@ -15,6 +15,7 @@
   <header class="top">
     <div class="top-inner">
       <h1>ひがやいびん</h1>
+      <button type="button" class="btn small logout project-switch" id="project-switch" hidden aria-label="プロジェクトを切り替える"></button>
       <ul class="summary" id="summary" aria-live="polite"></ul>
       <details class="account" id="account" hidden>
         <summary class="btn small logout">アカウント</summary>
@@ -53,6 +54,20 @@
       <button type="submit" class="btn primary" id="login-submit">ログインする</button>
     </form>
     <button type="button" class="btn link login-back" id="login-back" hidden>やめて、いまのアカウントに戻る</button>
+  </section>
+
+  <section class="home" id="home" hidden aria-labelledby="home-title">
+    <h2 id="home-title">プロジェクト</h2>
+    <p class="home-lead" id="home-lead"></p>
+    <ul class="projects" id="project-list"></ul>
+    <form class="panel project-new" id="project-new" autocomplete="off">
+      <label class="field">
+        <span>新しいプロジェクトの名前</span>
+        <input name="name" type="text" maxlength="50" required placeholder="例：仕事関係">
+      </label>
+      <button type="submit" class="btn primary">作る</button>
+      <div class="search-words" id="project-examples" hidden></div>
+    </form>
   </section>
 
   <main class="layout" id="main" hidden>

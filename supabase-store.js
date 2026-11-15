@@ -5,6 +5,7 @@
   function fromRow(r) {
     return {
       id: r.id,
+      projectId: r.project_id || null,
       content: r.content,
       category: r.category || '',
       action: r.action || '',
@@ -22,7 +23,7 @@
   }
 
   const COLUMNS = {
-    id: 'id', content: 'content', category: 'category', action: 'action', progress: 'progress', assignee: 'assignee', due: 'due',
+    id: 'id', projectId: 'project_id', content: 'content', category: 'category', action: 'action', progress: 'progress', assignee: 'assignee', due: 'due',
     status: 'status', priority: 'priority', attachments: 'attachments', repeat: 'repeat', notes: 'notes',
     createdAt: 'created_at', updatedAt: 'updated_at',
   };
@@ -47,6 +48,7 @@
     ['category', 'カテゴリ', 'supabase/add-category.sql'],
     ['repeat', '繰り返し', 'supabase/add-notes.sql'],
     ['notes', 'メモ', 'supabase/add-notes.sql'],
+    ['project_id', 'プロジェクト', 'supabase/add-projects.sql'],
   ];
   const isEmpty = (value) => value == null || value === '' || (Array.isArray(value) && value.length === 0);
 
@@ -143,6 +145,7 @@
         const row = toRow({ content, category: category || '', action, progress, assignee, due });
         if (fields.attachments && fields.attachments.length) row.attachments = fields.attachments;
         if (fields.repeat) row.repeat = fields.repeat;
+        if (fields.projectId) row.project_id = fields.projectId;
         if (fields.notes && fields.notes.length) row.notes = fields.notes;
         return fromRow(await send(row, (r) => table().insert(r).select().single()));
       },
@@ -151,6 +154,28 @@
         const row = { ...toRow(patch), updated_at: new Date().toISOString() };
         delete row.id;
         return fromRow(await send(row, (r) => table().update(r).eq('id', id).select().single()));
+      },
+
+      // ---- プロジェクト ----
+      // 準備がまだ（supabase/add-projects.sql を実行していない）なら null。そのときは、プロジェクトなしで今までどおり動く
+      async listProjects() {
+        const { data, error } = await client.from('projects').select('*').order('created_at');
+        if (error) return null;
+        return data.map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at }));
+      },
+
+      async addProject(name) {
+        const r = unwrap(await client.from('projects').insert({ name }).select().single());
+        return { id: r.id, name: r.name, createdAt: r.created_at };
+      },
+
+      async renameProject(id, name) {
+        unwrap(await client.from('projects').update({ name }).eq('id', id));
+      },
+
+      // プロジェクトをなくす。中の項目は消えず、「プロジェクトなし」になる（データベースの側で外れる）
+      async removeProject(id) {
+        unwrap(await client.from('projects').delete().eq('id', id));
       },
 
       // カテゴリの名前を変える（to が空なら、そのカテゴリをなくす）。項目は消えない

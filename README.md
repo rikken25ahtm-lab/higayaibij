@@ -90,7 +90,7 @@ Supabase に保存しているとき、最初の画面で「ログイン」と�
 - 「Authentication」→「Sign In / Providers」で **Allow new users to sign up** がオンになっていること（オフだと新規登録できません）。
 - 確認のメールのリンクからページに戻れるように、「Authentication」→「URL Configuration」の **Site URL** に、公開しているページのアドレスを入れておきます。
 - ページのアドレスを知っている人は、誰でも新規登録できます（登録しても、ほかの人の内容は見えません）。
-  使う人の登録が済んだら、**Allow new users to sign up** をオフに戻しておくと安心です。
+  誰でも使える形にするので、オンのままにします。「Confirm email」（メールの確認）は必ずオンにしておきます。
 
 ## メールとドライブの連携（第3段階）
 

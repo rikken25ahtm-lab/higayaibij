@@ -963,7 +963,7 @@
         row('期限', autoDue.due ? dueLabel(autoDue.due, today) : ''),
         row('繰り返し', repeatLabel(autoDue.repeat))
       ),
-      autoDue.dueUnreadable ? el('p', { class: 'warn' }, `期限「${autoDue.dueText}」は日付として読めませんでした。期限の欄で選んでください。`) : null
+      ...(autoDue.dueUnreadable ? [el('p', { class: 'warn' }, `期限「${autoDue.dueText}」は日付として読めませんでした。期限の欄で選んでください。`)] : [])
     );
   }
 

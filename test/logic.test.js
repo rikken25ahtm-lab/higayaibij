@@ -127,3 +127,26 @@ test('ひとことで追加：文から期限を読み取る', () => {
   assert.deepEqual(x('明日'), ['明日', null, '']); // 日付だけの文は、内容として残す
   assert.deepEqual(x(''), ['', null, '']);
 });
+
+test('キーワードをつけて話した文を、欄に分ける', () => {
+  const r = L.parseSpoken('内容 山田工務店に見積もりを頼む、対応は電話する、進捗は途中、担当は、自分、期限は20日', TODAY);
+  assert.deepEqual([r.content, r.action, r.progress, r.assignee, r.due], ['山田工務店に見積もりを頼む', '電話する', '途中', '自分', '2026-11-20']);
+  // 句読点も空白もない（声の入力でよくある形）
+  const s = L.parseSpoken('内容見積もりを頼む対応は電話する進捗は返事待ち担当は田中さん期限は来週の金曜カテゴリは物件繰り返しは毎月', TODAY);
+  assert.deepEqual([s.content, s.action, s.progress, s.assignee, s.due, s.category, s.repeat],
+    ['見積もりを頼む', '電話する', '返事待ち', '田中さん', '2026-11-20', '物件', 'monthly']);
+  // キーワードの前に話した文は、内容になる
+  const t = L.parseSpoken('家賃を振り込む、担当は自分、期限は月末', TODAY);
+  assert.deepEqual([t.content, t.assignee, t.due], ['家賃を振り込む', '自分', '2026-11-30']);
+  // 文の途中の「対応」は、ただの言葉として残す
+  assert.equal(L.parseSpoken('内容 保健所の対応を確認する、期限は明日', TODAY).content, '保健所の対応を確認する');
+  // 読めない期限は、黙って捨てない
+  const u = L.parseSpoken('内容 書類を出す、期限はそのうち', TODAY);
+  assert.deepEqual([u.due, u.dueUnreadable, u.dueText], [null, true, 'そのうち']);
+  // ふつうの文は分けない
+  assert.equal(L.parseSpoken('保健所の対応は早かった', TODAY), null);
+  assert.equal(L.parseSpoken('見積もりを頼む', TODAY), null);
+  assert.equal(L.parseSpoken('内容', TODAY), null);
+  assert.equal(L.matchCategory('物件', ['① 物件', '② 内装']), '① 物件');
+  assert.equal(L.matchCategory('新しい分類', ['① 物件']), '新しい分類');
+});

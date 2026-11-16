@@ -2,7 +2,7 @@
   'use strict';
 
   const {
-    toDateKey, dueLabel, extractDue, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
+    toDateKey, dueLabel, extractDue, parseSpoken, matchCategory, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
     dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
     itemText, mailText, matchesQuery, frequentWords,
@@ -923,21 +923,48 @@
     if (undo) await undo();
   });
 
-  // ---- ひとことで追加：「金曜までに見積もりを頼む」と書く（話す）と、期限の欄に日付が入る ----
-  // 期限を自分で入れたときは、そちらを優先して何もしない
-  let autoDue = null; // 文から読み取って入れた期限 { content, due, phrase }
+  // ---- ひとことで追加 ----
+  // 「金曜までに見積もりを頼む」と書く（話す）と、期限の欄に日付が入る。
+  // 「内容 …、対応は …、進捗は途中、担当は自分、期限は金曜」のようにキーワードをつけると、欄ごとに分けて入る。
+  // 期限を自分で入れたときは、そちらを優先する
+  let autoDue = null; // 文から読み取ったもの { content, due, phrase } または { spoken: true, content, action, … }
 
   function readQuickDue() {
+    const today = toDateKey(new Date());
     const dueInput = addForm.elements.due;
-    if (dueInput.value && !(autoDue && dueInput.value === autoDue.due)) {
-      autoDue = null; // 自分で入れた期限がある
+    const manualDue = dueInput.value && !(autoDue && autoDue.due && dueInput.value === autoDue.due);
+    const text = addForm.elements.content.value;
+    const found = parseSpoken(text, today) || extractDue(text, today);
+    if (manualDue) {
+      autoDue = found.spoken ? { ...found, due: null, dueUnreadable: false } : null;
     } else {
-      const found = extractDue(addForm.elements.content.value, toDateKey(new Date()));
-      autoDue = found.due ? found : null;
-      dueInput.value = autoDue ? autoDue.due : '';
+      autoDue = found.spoken || found.due ? found : null;
+      dueInput.value = autoDue && autoDue.due ? autoDue.due : '';
     }
-    $('quick-hint').hidden = !autoDue;
-    if (autoDue) $('quick-hint').textContent = `「${autoDue.phrase}」を読み取って、期限を ${dueLabel(autoDue.due, toDateKey(new Date()))} にしました。違うときは、期限の欄を直してください。`;
+    const hint = $('quick-hint');
+    hint.hidden = !autoDue;
+    if (!autoDue) return;
+    if (!autoDue.spoken) {
+      hint.replaceChildren(`「${autoDue.phrase}」を読み取って、期限を ${dueLabel(autoDue.due, today)} にしました。違うときは、期限の欄を直してください。`);
+      return;
+    }
+    const category = autoDue.category ? matchCategory(autoDue.category, categoriesOf(items)) : '';
+    const row = (label, value) => (value ? el('li', null, el('span', null, label), value) : null);
+    hint.replaceChildren(
+      el('p', null, '次のように分けて追加します。'),
+      el(
+        'ul',
+        { class: 'spoken' },
+        row('内容', autoDue.content),
+        row('カテゴリ', category),
+        row('対応', autoDue.action),
+        row('進捗', autoDue.progress),
+        row('担当', autoDue.assignee),
+        row('期限', autoDue.due ? dueLabel(autoDue.due, today) : ''),
+        row('繰り返し', repeatLabel(autoDue.repeat))
+      ),
+      autoDue.dueUnreadable ? el('p', { class: 'warn' }, `期限「${autoDue.dueText}」は日付として読めませんでした。期限の欄で選んでください。`) : null
+    );
   }
 
   addForm.elements.content.addEventListener('input', readQuickDue);
@@ -947,8 +974,20 @@
     e.preventDefault();
     const fields = readForm(addForm);
     if (!fields.content) return;
-    // 読み取った期限をそのまま使うときは、内容から「金曜までに」を外す
-    if (autoDue && fields.due === autoDue.due) fields.content = autoDue.content;
+    if (autoDue && autoDue.spoken) {
+      // キーワードで分けたもの。話した欄だけを入れ替える（話していない欄は、フォームで選んだまま）
+      fields.content = autoDue.content;
+      for (const key of ['action', 'progress', 'assignee', 'repeat']) {
+        if (autoDue[key]) fields[key] = autoDue[key];
+      }
+      if (autoDue.category) fields.category = matchCategory(autoDue.category, categoriesOf(items));
+    } else if (autoDue && fields.due === autoDue.due) {
+      // 読み取った期限をそのまま使うときは、内容から「金曜までに」を外す
+      fields.content = autoDue.content;
+    }
+    if (fields.content.length > 200) {
+      return showToast('「内容」が長すぎます（200文字まで）。短くするか、「内容 …、対応は …」のように分けて入れてください。', null);
+    }
     autoDue = null;
     $('quick-hint').hidden = true;
     await addItem(fields);

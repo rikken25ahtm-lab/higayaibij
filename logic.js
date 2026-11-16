@@ -237,6 +237,79 @@
       .filter((item) => item.content || item.category || item.action || item.progress || item.assignee || item.dueText);
   }
 
+  // ---- キーワードをつけて話した文を、欄に分ける ----
+  // 「内容 見積もりを頼む、対応は電話する、進捗は途中、担当は自分、期限は金曜」
+  //   → { content, action, progress, assignee, due, … , spoken: true }
+  // キーワードとして読むのは、「は」「：」が後ろについたものと、文の頭・区切り（、。空白）の直後にあるもの。
+  // 文の頭がキーワードか、キーワードが2つ以上あるときだけ分ける（ふつうの文を、勝手に分けないため）。
+  // 分けなかったときは null
+  const SPOKEN_KEYS = [
+    ['content', '内容|やること|用件|タイトル'],
+    ['category', 'カテゴリー|カテゴリ|分類'],
+    ['action', '必要な対応|対応'],
+    ['progress', '進捗|状況'],
+    ['assignee', '担当者|担当'],
+    ['dueText', '期限|締め切り|締切|期日'],
+    ['repeatText', '繰り返し'],
+  ];
+  const SPOKEN_MARK = new RegExp('(' + SPOKEN_KEYS.map((k) => k[1]).join('|') + ')(は|：|:|[、,，。\\s]|$)', 'g');
+  const REPEAT_WORDS = [['daily', /毎日/], ['weekly', /毎週/], ['monthly', /毎月/], ['yearly', /毎年/]];
+
+  function parseSpoken(text, todayKey) {
+    const source = String(text || '').trim();
+    const marks = [];
+    const used = new Set();
+    let m;
+    SPOKEN_MARK.lastIndex = 0;
+    while ((m = SPOKEN_MARK.exec(source))) {
+      const field = SPOKEN_KEYS.find((k) => new RegExp('^(' + k[1] + ')$').test(m[1]))[0];
+      const strong = /^[は：:]$/.test(m[2]);
+      const atBreak = m.index === 0 || /[、,，。\s]/.test(source[m.index - 1]);
+      if (used.has(field) || !(strong || atBreak)) continue; // 同じ欄は最初の1回だけ。文の途中の「対応」などは、ただの言葉
+      used.add(field);
+      marks.push({ field, start: m.index, end: m.index + m[0].length });
+    }
+    // 文の頭の「内容」は、後ろに何もつかなくても読む（「内容見積もりを頼む…」）
+    const head = source.match(new RegExp('^(' + SPOKEN_KEYS[0][1] + ')'));
+    if (head && !used.has('content')) marks.unshift({ field: 'content', start: 0, end: head[0].length });
+    if (!marks.length || !(marks[0].start === 0 || marks.length >= 2)) return null;
+
+    const raw = {};
+    const clean = (v) => v.replace(/^[は、,，。：:\s]+/, '').replace(/[、,，。\s]+$/, '');
+    const lead = clean(source.slice(0, marks[0].start));
+    marks.forEach((mark, i) => {
+      raw[mark.field] = clean(source.slice(mark.end, i + 1 < marks.length ? marks[i + 1].start : source.length));
+    });
+    if (lead && !raw.content) raw.content = lead; // キーワードの前に話した文は、内容にする
+    const value = (field) => (EMPTY_WORDS.test(raw[field] || '') ? '' : raw[field]);
+    const content = value('content').slice(0, 200);
+    if (!content) return null;
+
+    const dueText = value('dueText');
+    const due = parseDue(dueText, todayKey);
+    const repeat = (REPEAT_WORDS.find((r) => r[1].test(value('repeatText'))) || [''])[0];
+    return {
+      spoken: true,
+      content,
+      category: value('category').slice(0, 50),
+      action: value('action').slice(0, 500),
+      progress: normalizeProgress(value('progress')),
+      assignee: value('assignee').slice(0, 50),
+      due,
+      dueText,
+      dueUnreadable: Boolean(dueText) && !due,
+      repeat,
+    };
+  }
+
+  // 話したカテゴリの名前を、いまあるカテゴリに寄せる（「物件」→「① 物件」）。なければ、話した名前のまま
+  function matchCategory(spoken, categories) {
+    const key = (v) => normalizeText(v).replace(/[^\p{L}\p{N}]/gu, '').replace(/^[\d①-⑳]+/, '');
+    const want = key(spoken);
+    if (!want) return '';
+    return categories.find((c) => key(c) === want) || categories.find((c) => key(c).includes(want) || want.includes(key(c)) && key(c)) || spoken;
+  }
+
   // ---- カテゴリ ----
 
   // 項目についているカテゴリの一覧（名前の順。「① …」「② …」のように番号をつけておくと、その順に並ぶ）
@@ -460,7 +533,7 @@
   }
 
   const api = {
-    toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, extractDue, parsePaste, PROGRESS_CHOICES, normalizeProgress,
+    toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, extractDue, parseSpoken, matchCategory, parsePaste, PROGRESS_CHOICES, normalizeProgress,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
     dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
     normalizeText, itemText, mailText, matchesQuery, frequentWords,

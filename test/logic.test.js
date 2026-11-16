@@ -114,3 +114,16 @@ test('よく出る言葉：2つ以上の文に出てくる言葉を、多い順�
   assert.ok(!words.includes('これ'));
   assert.deepEqual(L.frequentWords(['一度だけの言葉'], 8), []);
 });
+
+test('ひとことで追加：文から期限を読み取る', () => {
+  const x = (text) => { const r = L.extractDue(text, TODAY); return [r.content, r.due, r.phrase]; };
+  assert.deepEqual(x('金曜までに見積もりを頼む'), ['見積もりを頼む', '2026-11-20', '金曜までに']);
+  assert.deepEqual(x('見積もりを来週の月曜日までに頼む'), ['見積もりを頼む', '2026-11-16', '来週の月曜日までに']);
+  assert.deepEqual(x('明日 歯医者に電話'), ['歯医者に電話', '2026-11-15', '明日']);
+  assert.deepEqual(x('１１月２０日までに、家賃を振り込む'), ['家賃を振り込む', '2026-11-20', '11月20日までに']);
+  assert.deepEqual(x('今月中に保険の書類を出す'), ['今月中に保険の書類を出す', null, '']);
+  assert.deepEqual(x('3/4サイズの箱を買う'.replace('3/4', 'A4')), ['A4サイズの箱を買う', null, '']);
+  assert.deepEqual(x('薬を5日分もらう'), ['薬を5日分もらう', null, '']);
+  assert.deepEqual(x('明日'), ['明日', null, '']); // 日付だけの文は、内容として残す
+  assert.deepEqual(x(''), ['', null, '']);
+});

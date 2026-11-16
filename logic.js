@@ -136,6 +136,27 @@
     return null;
   }
 
+  // ひとことで書いた（話した）文から、期限を読み取る。
+  // 「金曜までに見積もりを頼む」→ { content: '見積もりを頼む', due: '…', phrase: '金曜までに' }
+  // 期限として読むのは、「…まで」「…までに」「…中に」がついた日付と、文の頭にある日付だけ
+  // （文の途中の「3/4サイズ」「5日分」などを、期限と取り違えないため）。読み取れなければ due は null
+  const DATE_WORD = '(?:\\d{4}[-/.年]\\d{1,2}[-/.月]\\d{1,2}日?|(?:今月|来月|再来月)\\d{1,2}日|\\d{1,2}月\\d{1,2}日?|\\d{1,2}/\\d{1,2}|\\d{1,2}月末|再来月末|来月末|今月末|月末'
+    + '|今日|本日|明後日|あさって|明日|あした|\\d+日後|\\d+週間後|(?:再来週|来週|今週)?の?[月火水木金土日]曜日?|\\d{1,2}日)';
+  const DUE_BEFORE = new RegExp('(' + DATE_WORD + ')\\s*(?:までに|まで|迄に|迄|中に)[、,，\\s]*');
+  const DUE_HEAD = new RegExp('^\\s*(' + DATE_WORD + ')(?:に|は|の)?[、,，\\s]*');
+
+  function extractDue(text, todayKey) {
+    const source = String(text || '').replace(/[０-９／]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+    for (const pattern of [DUE_BEFORE, DUE_HEAD]) {
+      const m = source.match(pattern);
+      if (!m) continue;
+      const due = parseDue(m[1], todayKey);
+      const content = (source.slice(0, m.index) + source.slice(m.index + m[0].length)).replace(/^[、,，\\s]+/, '').trim();
+      if (due && content) return { content, due, phrase: m[0].trim().replace(/[、,，]+$/, '') };
+    }
+    return { content: String(text || '').trim(), due: null, phrase: '' };
+  }
+
   // 進捗は3つから選ぶ。AI が少し違う言い方をしても、近いものに寄せる。
   const PROGRESS_CHOICES = ['まだ', '途中', '返事待ち'];
 
@@ -439,7 +460,7 @@
   }
 
   const api = {
-    toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, parsePaste, PROGRESS_CHOICES, normalizeProgress,
+    toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, extractDue, parsePaste, PROGRESS_CHOICES, normalizeProgress,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
     dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
     normalizeText, itemText, mailText, matchesQuery, frequentWords,

@@ -93,8 +93,10 @@
       <form id="add-form" class="item-form" autocomplete="off">
         <label class="field">
           <span>内容</span>
-          <input name="content" type="text" required maxlength="200" placeholder="例：粗大ごみの回収を申し込む" enterkeyhint="next">
+          <input name="content" type="text" required maxlength="200" placeholder="例：金曜までに粗大ごみの回収を申し込む" enterkeyhint="next">
         </label>
+        <p class="hint" id="quick-tip">キーボードのマイクで話しても入れられます。「金曜までに…」「明日…」と入れると、期限も入ります。</p>
+        <p class="hint quick-hint" id="quick-hint" role="status" hidden></p>
         <div class="more">
           <label class="field">
             <span>カテゴリ</span>

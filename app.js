@@ -2,7 +2,7 @@
   'use strict';
 
   const {
-    toDateKey, dueLabel, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
+    toDateKey, dueLabel, extractDue, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
     dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
     itemText, mailText, matchesQuery, frequentWords,
@@ -923,10 +923,34 @@
     if (undo) await undo();
   });
 
+  // ---- ひとことで追加：「金曜までに見積もりを頼む」と書く（話す）と、期限の欄に日付が入る ----
+  // 期限を自分で入れたときは、そちらを優先して何もしない
+  let autoDue = null; // 文から読み取って入れた期限 { content, due, phrase }
+
+  function readQuickDue() {
+    const dueInput = addForm.elements.due;
+    if (dueInput.value && !(autoDue && dueInput.value === autoDue.due)) {
+      autoDue = null; // 自分で入れた期限がある
+    } else {
+      const found = extractDue(addForm.elements.content.value, toDateKey(new Date()));
+      autoDue = found.due ? found : null;
+      dueInput.value = autoDue ? autoDue.due : '';
+    }
+    $('quick-hint').hidden = !autoDue;
+    if (autoDue) $('quick-hint').textContent = `「${autoDue.phrase}」を読み取って、期限を ${dueLabel(autoDue.due, toDateKey(new Date()))} にしました。違うときは、期限の欄を直してください。`;
+  }
+
+  addForm.elements.content.addEventListener('input', readQuickDue);
+  addForm.elements.due.addEventListener('input', readQuickDue);
+
   addForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fields = readForm(addForm);
     if (!fields.content) return;
+    // 読み取った期限をそのまま使うときは、内容から「金曜までに」を外す
+    if (autoDue && fields.due === autoDue.due) fields.content = autoDue.content;
+    autoDue = null;
+    $('quick-hint').hidden = true;
     await addItem(fields);
     addForm.reset();
     addCategoryChosen = false;

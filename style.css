@@ -475,3 +475,7 @@ section.near { margin-bottom: 24px; }
 @media (max-width: 859px) {
   .project-switch { order: 1; }
 }
+
+/* ---- ひとことで追加 ---- */
+.hint { color: var(--muted); font-size: 0.8rem; }
+.quick-hint { padding: 8px 10px; border-radius: 8px; background: var(--soon-bg); color: var(--text); font-size: 0.85rem; }

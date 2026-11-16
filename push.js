@@ -1,4 +1,4 @@
-// 朝10時・夕方17時の報告を、この端末の通知で受け取るための設定（Supabase を使うときだけ）。
+// 朝と夕方の報告を、この端末の通知で受け取るための設定（Supabase を使うときだけ）。時刻は人ごとに選べる。
 (function (root) {
   'use strict';
 
@@ -27,6 +27,40 @@
       let registration = null;
       let openedByHand = false;
 
+      // ---- 報告を受け取る時刻（日本時間）。人によって生活の時間が違うので、自分で選べる ----
+      const timesBox = $('notify-times');
+      const morningSelect = $('notify-morning');
+      const eveningSelect = $('notify-evening');
+      let times = { morning: 10, evening: 17 };
+      const hourText = (hour) => (hour === null || hour === undefined ? '' : `${hour}時`);
+      const fill = (select, from, to) => {
+        select.replaceChildren(new Option('受け取らない', ''), ...Array.from({ length: to - from + 1 }, (_, i) => new Option(`${from + i}時`, String(from + i))));
+      };
+      fill(morningSelect, 4, 12);
+      fill(eveningSelect, 13, 23);
+      // 「毎日 朝10時と夕方17時」のように、いまの時刻をことばにする
+      const whenText = () => {
+        const parts = [times.morning !== null ? `朝${hourText(times.morning)}` : '', times.evening !== null ? `${times.evening >= 19 ? '夜' : '夕方'}${hourText(times.evening)}` : ''].filter(Boolean);
+        return parts.length ? `毎日 ${parts.join('と')}` : '';
+      };
+      async function loadTimes() {
+        const saved = await Store.notifyTimes();
+        timesBox.hidden = !saved; // 準備がまだ（SQL を実行し直していない）なら、選ぶ欄は出さない
+        if (!saved) return;
+        times = saved;
+        morningSelect.value = times.morning === null ? '' : String(times.morning);
+        eveningSelect.value = times.evening === null ? '' : String(times.evening);
+      }
+      const saveTimes = () => guarded(morningSelect, async () => {
+        const pick = (select) => (select.value === '' ? null : Number(select.value));
+        times = { morning: pick(morningSelect), evening: pick(eveningSelect) };
+        await Store.saveNotifyTimes(times);
+        showToast(whenText() ? `${whenText()}に報告を届けます。` : '時刻の決まった報告は届けません（緊急のメールの通知は届きます）。', null);
+        await refresh();
+      });
+      morningSelect.addEventListener('change', saveTimes);
+      eveningSelect.addEventListener('change', saveTimes);
+
       // 欄を大きく出すのは、まだ選んでいないとき（needsChoice）だけ。
       // 選び終わったあとは畳んで、一番下の「通知の設定」から開けるようにする。
       function show(text, state, needsChoice = state === 'off') {
@@ -47,7 +81,12 @@
         if (openedByHand) box.scrollIntoView({ block: 'nearest' });
       });
 
+      let timesLoaded = false;
       async function refresh() {
+        if (!timesLoaded) {
+          timesLoaded = true;
+          await loadTimes().catch((error) => console.error(error)); // 読めなくても、通知の設定そのものは使える
+        }
         if (!supported) {
           return isIOS && !isInstalled
             ? show('iPhone では、Safari の共有ボタンから「ホーム画面に追加」を選び、ホーム画面のアイコンから開くと通知を受け取れます。', 'none', true)
@@ -62,9 +101,9 @@
         const sub = await registration.pushManager.getSubscription();
         if (sub) {
           await Store.savePushSubscription(sub.toJSON()); // ログインし直したあとも登録が残るように
-          show('この端末で、毎日 朝10時と夕方17時に報告を受け取ります。', 'on');
+          show(whenText() ? `この端末で、${whenText()}に報告を受け取ります。` : 'この端末では、時刻の決まった報告は受け取りません（緊急のメールの通知は届きます）。', 'on');
         } else {
-          show('毎日 朝10時と夕方17時に、その間に起きたこと（追加・期限の変更など）を通知でお知らせします。', 'off');
+          show(`${whenText() || '毎日 決めた時刻'}に、その間に起きたこと（追加・期限の変更など）を通知でお知らせします。時刻は下で選べます。`, 'off');
         }
       }
 
@@ -116,6 +155,13 @@
 
       // ---- 通知を押して開いたとき：その回の報告を、ページの一番上に出す ----
       async function openReport(view) {
+        // 緊急のメールの通知から開いたとき：メールからの候補のところへ
+        if (view === 'mail') {
+          await markItems([]);
+          const target = document.getElementById('mail').hidden ? document.getElementById('home-mail') : document.getElementById('mail');
+          if (target && !target.hidden) target.scrollIntoView({ block: 'start' });
+          return;
+        }
         if (!/^(now|\d{4}-\d{2}-\d{2}-(morning|evening))$/.test(view)) return;
         try {
           const report = await Store.viewReport(view);

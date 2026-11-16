@@ -16,6 +16,7 @@
       const tokenBox = $('maillink-token-box');
       const tokenInput = $('maillink-token');
       const openLink = $('maillink-open');
+      const settings = $('maillink-settings');
       const { mailTime } = root.Logic;
 
       async function refresh() {
@@ -23,16 +24,23 @@
         createButton.hidden = !link;
         offButton.hidden = !(link && link.linked);
         createButton.textContent = link && link.linked ? '合言葉を作り直す' : '合言葉を作る';
+        // ラベルの名前と大事な相手は、合言葉を作ってから決められる。書きかけは上書きしない
+        settings.hidden = !(link && link.linked);
+        if (link && link.linked && document.activeElement !== settings.elements.label && document.activeElement !== settings.elements.important) {
+          settings.elements.label.value = link.label;
+          settings.elements.important.value = link.important.join('\n');
+        }
+        const label = link && link.linked ? link.label : 'ひがやいびん';
         if (!link) {
           status.textContent = 'まだ準備ができていません。先に、README の「メールとドライブの連携」の手順1（SQL の実行）を行ってください。';
         } else if (!link.linked) {
-          status.textContent = 'Gmail でラベル「2号店」をつけたメールを、やることの候補として受け取れます。添付はドライブに保存され、リンクがつきます。まず合言葉を作り、README の手順で Gmail の側に入れてください。';
+          status.textContent = 'Gmail で決めたラベルをつけたメールを、やることの候補として受け取れます。添付はドライブに保存され、リンクがつきます。まず合言葉を作り、README の手順で Gmail の側に入れてください。';
         } else if (!link.lastSeenAt) {
           status.textContent = '合言葉は作成済みです。Gmail の側からの確認は、まだ来ていません（README の手順で、Apps Script の setup を実行してください）。';
         } else if (Date.now() - new Date(link.lastSeenAt).getTime() > HOUR_MS) {
           status.textContent = `1時間以上、Gmail の側からの確認が来ていません（最後の確認：${mailTime(link.lastSeenAt)}）。Apps Script の予約が止まっていないか確認してください。`;
         } else {
-          status.textContent = `連携しています。15分おきにメールを確認します（最後の確認：${mailTime(link.lastSeenAt)}）。`;
+          status.textContent = `連携しています。ラベル「${label}」のメールを、30分おきに確認します（最後の確認：${mailTime(link.lastSeenAt)}）。`;
         }
       }
 
@@ -80,6 +88,21 @@
           tokenInput.select();
           showToast('合言葉を選択しました。そのままコピーしてください。', null);
         }
+      });
+
+      settings.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const button = settings.querySelector('button[type="submit"]');
+        guarded(button, async () => {
+          const label = settings.elements.label.value.trim().slice(0, 40);
+          if (!label) return;
+          const important = [...new Set(settings.elements.important.value.split(/\n/).map((line) => line.trim().slice(0, 100)).filter(Boolean))].slice(0, 50);
+          await Store.saveMailSettings({ label, important });
+          settings.elements.label.blur();
+          settings.elements.important.blur();
+          showToast('保存しました。ラベルの名前は、次の確認（30分以内）から使われます。', null);
+          await refresh();
+        });
       });
 
       offButton.addEventListener('click', () => guarded(offButton, async () => {

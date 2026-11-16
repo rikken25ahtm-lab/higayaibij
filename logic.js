@@ -512,6 +512,60 @@
     return source.match(/[ァ-ヺー]{2,}|[一-鿿]{2,}|[A-Za-z]{3,}/g) || [];
   }
 
+  // 文の中の、手がかりになる言葉（ひらがなだけの言葉・数字・1文字の言葉は除く）
+  function keyWords(text) {
+    const out = new Set();
+    for (const raw of splitWords(text)) {
+      const word = raw.toLowerCase();
+      if (word.length < 2 || word.length > 20) continue;
+      if (/^[ぁ-ゖー]+$/.test(word) || /^[\d.,:/-]+$/.test(word) || STOP_WORDS.has(word)) continue;
+      out.add(word);
+    }
+    return out;
+  }
+
+  // ---- メールの候補の、振り分け先の提案（AI は使わず、決まりで決める） ----
+
+  // 「山田 <Yamada@Example.com>」→「yamada@example.com」
+  function senderAddress(sender) {
+    const text = String(sender || '').trim();
+    const match = text.match(/<([^>]*)>\s*$/);
+    return (match ? match[1] : text).trim().toLowerCase();
+  }
+
+  // 候補を、どこに入れるとよさそうか。history は、これまでに追加した候補 [{ sender, itemId }]（新しい順）。
+  //   1. 同じ件名のやりとりが、まだ終わっていない項目についている → その項目に足す
+  //   2. 同じ差出人のメールを、前に入れた項目がある → 同じプロジェクト・カテゴリ
+  //   3. 似た言葉（2つ以上）のやることがある → 同じプロジェクト・カテゴリ
+  // 戻り値：{ itemId?, projectId, category, reason } または null。決めるのは本人なので、これは下書き
+  function suggestPlace(mail, history, items) {
+    const place = (item, more) => ({ projectId: item.projectId || null, category: item.category || '', ...more });
+    const subject = cleanSubject(mail.subject);
+    if (subject) {
+      const same = items.find((item) => item.status !== 'done' && safeLinks(item.attachments).some((link) => link.subject === subject));
+      if (same) return place(same, { itemId: same.id, reason: '同じ件名のやりとりが、この項目についています' });
+    }
+
+    const address = senderAddress(mail.sender);
+    if (address) {
+      for (const past of history || []) {
+        if (senderAddress(past.sender) !== address) continue;
+        const item = items.find((i) => i.id === past.itemId);
+        if (item) return place(item, { reason: '同じ差出人のメールを、前にここへ入れました' });
+      }
+    }
+
+    const words = keyWords(`${mail.subject || ''}\n${mail.excerpt || ''}`);
+    let best = null;
+    for (const item of items) {
+      if (item.status === 'done') continue;
+      const shared = [...keyWords(`${item.content}\n${item.action || ''}`)].filter((word) => words.has(word));
+      if (shared.length >= 2 && (!best || shared.length > best.shared.length)) best = { item, shared };
+    }
+    if (best) return place(best.item, { reason: `似た言葉のやることがあります（${best.shared.slice(0, 3).join('・')}）` });
+    return null;
+  }
+
   // よく出てくる言葉（いくつの文に出てくるかで数える）。2つ以上の文に出てくるものだけを、多い順に返す。
   // ひらがなだけの言葉・数字・1文字の言葉は、探す手がかりになりにくいので外す
   function frequentWords(texts, limit) {
@@ -537,7 +591,7 @@
     toDateKey, daysUntil, dueLevel, dueLabel, sortOpen, sortDone, summarize, parseDue, extractDue, parseSpoken, matchCategory, parsePaste, PROGRESS_CHOICES, normalizeProgress,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
     dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
-    normalizeText, itemText, mailText, matchesQuery, frequentWords,
+    normalizeText, itemText, mailText, matchesQuery, frequentWords, senderAddress, suggestPlace,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;

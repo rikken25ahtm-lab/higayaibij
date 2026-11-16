@@ -1,10 +1,11 @@
-// ひがやいびん：朝10時・夕方17時の報告を、スマホの通知（Web Push）で送る。
+// ひがやいびん：朝と夕方の報告を、スマホの通知（Web Push）で送る。時刻は人ごとに選べる（既定は朝10時・夕方17時）。
 // Supabase の Edge Function として動かす。外部のライブラリは使わない。
 //
 //   GET  …/report        通知の登録に使う公開鍵を返す（初回に鍵を作って保存する）
-//   POST …/report        時刻の決まった報告。朝10時台・夕方17時台に、1回だけ全員へ送る
+//   POST …/report        時刻の決まった報告。毎時0分に呼ばれ、その時刻を選んでいる人にだけ、1回だけ送る
 //   POST …/report  + ログイン中の Authorization   本人の端末だけに、今の内容をすぐ送る（お試し用）
 //   POST …/report  + ログイン中の Authorization + { view }   その回の報告の中身を返す（通知から開いたページ用）
+//   POST …/report  + { mail_token }   Gmail の側から、メールを届けた直後に呼ばれる。緊急のメールだけ、その場で通知する
 //
 // 報告の中身は、その時間帯に起きたこと（追加・期限の変更・完了・削除）、届いたメールの要点、期限の近い件数。
 //
@@ -22,10 +23,19 @@ export function jstNow(date) {
   return { dateKey: j.toISOString().slice(0, 10), hour: j.getUTCHours() };
 }
 
-// 朝10時台は 'morning'、夕方17時台は 'evening'、それ以外は null
-export function slotFor(hour) {
-  if (hour === 10) return 'morning';
-  if (hour === 17) return 'evening';
+// 報告の時刻（日本時間の「時」）。本人が変えられる。null は、その回を受け取らない
+export const DEFAULT_TIMES = { morning: 10, evening: 17 };
+
+export function cleanTimes(row) {
+  const hour = (value, fallback) => (value === null ? null : Number.isInteger(value) && value >= 0 && value <= 23 ? value : fallback);
+  if (!row) return { ...DEFAULT_TIMES };
+  return { morning: hour(row.morning_hour, DEFAULT_TIMES.morning), evening: hour(row.evening_hour, DEFAULT_TIMES.evening) };
+}
+
+// その「時」が、その人の朝の報告なら 'morning'、夕方の報告なら 'evening'、どちらでもなければ null
+export function slotFor(hour, times = DEFAULT_TIMES) {
+  if (times.morning === hour) return 'morning';
+  if (times.evening === hour) return 'evening';
   return null;
 }
 
@@ -55,20 +65,27 @@ function clip(text, max) {
 
 const HOUR_MS = 60 * 60 * 1000;
 
-// 報告が対象にする時間の範囲（設計メモ 6.）
-//   朝10時の報告 … 前日17時〜当日10時 ／ 夕方17時の報告 … 当日10時〜17時
-export function slotWindow(dateKey, slot) {
+// 報告が対象にする時間の範囲：前の回の報告の時刻から、その回の時刻まで。
+//   既定（朝10時・夕方17時）なら、朝の報告 … 前日17時〜当日10時 ／ 夕方の報告 … 当日10時〜17時
+//   片方を受け取らない人は、前の日の同じ回から（24時間）
+export function slotWindow(dateKey, slot, times = DEFAULT_TIMES) {
   const midnight = Date.parse(dateKey) - JST_OFFSET_MS; // 日本時間の0時
-  return slot === 'morning'
-    ? { start: new Date(midnight - 7 * HOUR_MS), end: new Date(midnight + 10 * HOUR_MS) }
-    : { start: new Date(midnight + 10 * HOUR_MS), end: new Date(midnight + 17 * HOUR_MS) };
+  const end = times[slot];
+  const other = times[slot === 'morning' ? 'evening' : 'morning'];
+  // 前の回：同じ日のもう片方（今回より前の時刻なら）、なければ前の日
+  const back = other === null || other === undefined ? 24 : (end - other + 24) % 24 || 24;
+  return { start: new Date(midnight + (end - back) * HOUR_MS), end: new Date(midnight + end * HOUR_MS) };
 }
 
 // 「今すぐ試しに送る」用：直前の報告の時刻から今まで
-export function currentWindow(now) {
+export function currentWindow(now, times = DEFAULT_TIMES) {
   const { dateKey, hour } = jstNow(now);
   const midnight = Date.parse(dateKey) - JST_OFFSET_MS;
-  const from = hour >= 17 ? 17 : hour >= 10 ? 10 : -7;
+  const hours = [times.morning, times.evening].filter((h) => h !== null && h !== undefined);
+  if (!hours.length) return { start: new Date(now.getTime() - 24 * HOUR_MS), end: new Date(now.getTime() + 1000) };
+  // 今日すでに過ぎた回のうち最後のもの。まだなければ、前の日の最後の回
+  const passed = hours.filter((h) => h <= hour);
+  const from = passed.length ? Math.max(...passed) : Math.max(...hours) - 24;
   return { start: new Date(midnight + from * HOUR_MS), end: new Date(now.getTime() + 1000) };
 }
 
@@ -160,6 +177,75 @@ export function buildReport(events, items, todayKey, slot, mails = []) {
     lines: [...lines, deadline], // 画面では省略せずに全部出す
     itemIds: changes.filter((c) => c.kind !== 'deleted').map((c) => c.itemId),
   };
+}
+
+// ---------- 緊急のメールの判定（AI は使わず、決まりで判定する） ----------
+
+const URGENT_WORDS = /大至急|至急|緊急|早急|急ぎ|本日中|今日中|明日中|明日まで|本日まで|今日まで|督促|最終のご案内|最終通知|期限が過ぎ|期限を過ぎ|urgent|asap/i;
+const DUE_WORDS = '(?:まで|迄|期限|期日|締切|締め切り|〆切|必着)';
+const MAIL_DATE = '(?:(\\d{4})[年/])?(\\d{1,2})[月/](\\d{1,2})日?';
+const DATE_THEN_DUE = new RegExp(MAIL_DATE + '[^\\n。]{0,8}?' + DUE_WORDS, 'g');   // 「11月17日までに」「11/17（火）必着」
+const DUE_THEN_DATE = new RegExp(DUE_WORDS + '[^\\n。\\d]{0,8}' + MAIL_DATE, 'g'); // 「お支払い期限：11月17日」
+
+function toHalfWidth(text) {
+  return String(text || '').replace(/[０-９／：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+}
+
+// 文の中の「期限つきの日付」を 'YYYY-MM-DD' の一覧にする。年がなければ今年（もう過ぎた月日なら来年とはせず、過去として捨てる）
+function deadlinesIn(text, todayKey) {
+  const year = Number(todayKey.slice(0, 4));
+  const out = [];
+  for (const pattern of [DATE_THEN_DUE, DUE_THEN_DATE]) {
+    pattern.lastIndex = 0;
+    let m;
+    while ((m = pattern.exec(text))) {
+      const y = m[1] ? Number(m[1]) : year;
+      const mo = Number(m[2]);
+      const d = Number(m[3]);
+      const date = new Date(Date.UTC(y, mo - 1, d));
+      if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) continue; // 13月40日のような、日付でない数字
+      out.push(date.toISOString().slice(0, 10));
+    }
+  }
+  return out;
+}
+
+// 緊急かどうかと、その理由。important は、本人が「大事な相手」に入れた言葉（アドレス・ドメイン・名前の一部）
+//   1. 大事な相手から届いた  2. 「至急」「本日中」などの言葉がある  3. 3日以内の期限が書かれている
+export function mailUrgency(mail, important, todayKey) {
+  const sender = String(mail.sender || '').toLowerCase();
+  const who = (important || []).map((s) => String(s || '').trim().toLowerCase()).filter(Boolean).find((s) => sender.includes(s));
+  if (who) return { urgent: true, reason: '大事な相手から' };
+
+  const text = toHalfWidth(`${mail.subject || ''}\n${String(mail.excerpt || '').slice(0, 800)}`);
+  const word = text.match(URGENT_WORDS);
+  if (word) return { urgent: true, reason: `「${word[0]}」とある` };
+
+  const near = deadlinesIn(text, todayKey)
+    .map((key) => [key, daysBetween(todayKey, key)])
+    .filter(([, days]) => days >= 0 && days <= 3)
+    .sort((a, b) => a[1] - b[1])[0];
+  if (near) return { urgent: true, reason: `期限が近い（${shortDate(near[0])}）` };
+  return { urgent: false, reason: '' };
+}
+
+const MAX_URGENT_PUSHES = 3;                 // 1回に送る緊急の通知の数（それ以上は、まとめて1通）
+const URGENT_FRESH_MS = 2 * 60 * 60 * 1000;  // 届いてから時間のたった候補は、判定だけして通知はしない
+
+// 緊急のメール → 通知。多いときは、最後の1通にまとめる
+export function urgentMessages(urgent) {
+  const one = (mail) => ({
+    title: `緊急のメール：${clip(senderName(mail.sender), 16) || '差出人なし'}`,
+    body: `${clip(mail.subject, 40) || '（件名なし）'}\n${mail.reason}`,
+    tag: `mail-${mail.id}`,
+    view: 'mail',
+  });
+  if (urgent.length <= MAX_URGENT_PUSHES) return urgent.map(one);
+  const rest = urgent.slice(MAX_URGENT_PUSHES - 1);
+  return [
+    ...urgent.slice(0, MAX_URGENT_PUSHES - 1).map(one),
+    { title: `緊急のメール：ほか${rest.length}件`, body: rest.map((m) => clip(m.subject, 24) || '（件名なし）').join('\n'), tag: 'mail-more', view: 'mail' },
+  ];
 }
 
 // ---------- Web Push（RFC 8291 の暗号化と、RFC 8292 の VAPID 署名） ----------
@@ -297,6 +383,38 @@ function createDb(url, serviceKey, fetchImpl = fetch) {
         return [];
       }
     },
+    // 報告の時刻（人ごと）。まだ表がなければ（SQL を実行し直していなければ）、全員が既定の時刻
+    async times(userId) {
+      try {
+        const rows = await rest(`notify_settings?select=user_id,morning_hour,evening_hour${userId ? `&user_id=eq.${userId}` : ''}`);
+        return new Map(rows.map((row) => [row.user_id, cleanTimes(row)]));
+      } catch (_) {
+        return new Map();
+      }
+    },
+    // ---- 緊急のメール ----
+    // 合言葉から持ち主を確かめる。違っていれば null
+    async mailOwner(token) {
+      try {
+        return await rest('rpc/mail_owner', { method: 'POST', body: JSON.stringify({ p_token: token }) });
+      } catch (_) {
+        return null;
+      }
+    },
+    async importantSenders(userId) {
+      const rows = await rest(`mail_links?select=important&user_id=eq.${userId}`);
+      return rows.length && Array.isArray(rows[0].important) ? rows[0].important : [];
+    },
+    // まだ判定していない候補（古い順）
+    uncheckedMails(userId) {
+      return rest(`mail_candidates?select=id,sender,subject,excerpt,created_at&user_id=eq.${userId}&checked_at=is.null&order=created_at.asc&limit=50`);
+    },
+    markMail(id, urgent, reason, now) {
+      return rest(`mail_candidates?id=eq.${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ urgent, urgent_reason: reason, checked_at: now.toISOString() }),
+      });
+    },
     openItems(userId) {
       return rest(`items?select=content,progress,assignee,due,status&status=eq.open&user_id=eq.${userId}`);
     },
@@ -323,36 +441,65 @@ function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
 
+// 1人の端末すべてに、同じ通知を送る。無効になった登録は消す
+async function pushTo(db, subs, message, vapid, subject, fetchImpl) {
+  let sent = 0;
+  let failed = 0;
+  for (const sub of subs) {
+    let status = 0;
+    try {
+      status = await sendPush(sub, message, vapid, subject, fetchImpl);
+    } catch (_) { /* 1台の失敗で、ほかの端末への送信を止めない */ }
+    if (status >= 200 && status < 300) sent++;
+    else {
+      failed++;
+      if (status === 404 || status === 410) await db.removeSubscription(sub.endpoint); // 端末側で通知が解除された
+    }
+  }
+  return { sent, failed };
+}
+
+// Gmail の側から呼ばれる：まだ判定していない候補を判定し、緊急のものだけをその場で通知する
+async function checkMails(db, vapid, subject, userId, todayKey, now, fetchImpl) {
+  const [mails, important] = await Promise.all([db.uncheckedMails(userId), db.importantSenders(userId)]);
+  const urgent = [];
+  for (const mail of mails) {
+    const { urgent: isUrgent, reason } = mailUrgency(mail, important, todayKey);
+    await db.markMail(mail.id, isUrgent, reason, now);
+    const fresh = now.getTime() - new Date(mail.created_at).getTime() <= URGENT_FRESH_MS;
+    if (isUrgent && fresh) urgent.push({ ...mail, reason });
+  }
+  let sent = 0;
+  let failed = 0;
+  if (urgent.length) {
+    const subs = await db.subscriptions(userId);
+    for (const message of urgentMessages(urgent)) {
+      const result = await pushTo(db, subs, message, vapid, subject, fetchImpl);
+      sent += result.sent;
+      failed += result.failed;
+    }
+  }
+  return { checked: mails.length, urgent: urgent.length, sent, failed };
+}
+
 async function reportFor(db, userId, todayKey, slot, window) {
   const [events, items, mails] = await Promise.all([db.events(userId, window), db.openItems(userId), db.mails(userId, window)]);
   return buildReport(events, items, todayKey, slot, mails);
 }
 
-// 登録されている端末へ送る。userId を渡すと、その人の端末だけ
-async function deliver(db, vapid, subject, todayKey, slot, window, userId, fetchImpl) {
-  const subs = await db.subscriptions(userId);
-  const byUser = new Map();
-  for (const sub of subs) byUser.set(sub.user_id, [...(byUser.get(sub.user_id) || []), sub]);
+// 1人に、その回の報告を送る
+async function deliverTo(db, vapid, subject, todayKey, slot, window, userId, subs, fetchImpl) {
+  const { title, body } = await reportFor(db, userId, todayKey, slot, window);
+  // view は、通知を押したときにページが開く報告（例：2026-11-14-morning）
+  const message = { title, body, tag: slot || 'now', view: slot ? `${todayKey}-${slot}` : 'now' };
+  return pushTo(db, subs, message, vapid, subject, fetchImpl);
+}
 
-  let sent = 0;
-  let failed = 0;
-  for (const [uid, list] of byUser) {
-    const { title, body } = await reportFor(db, uid, todayKey, slot, window);
-    // view は、通知を押したときにページが開く報告（例：2026-11-14-morning）
-    const message = { title, body, tag: slot || 'now', view: slot ? `${todayKey}-${slot}` : 'now' };
-    for (const sub of list) {
-      let status = 0;
-      try {
-        status = await sendPush(sub, message, vapid, subject, fetchImpl);
-      } catch (_) { /* 1台の失敗で、ほかの端末への送信を止めない */ }
-      if (status >= 200 && status < 300) sent++;
-      else {
-        failed++;
-        if (status === 404 || status === 410) await db.removeSubscription(sub.endpoint); // 端末側で通知が解除された
-      }
-    }
-  }
-  return { sent, failed };
+// 通知を受け取る人ごとに、端末の登録をまとめる
+async function subscribers(db, userId) {
+  const byUser = new Map();
+  for (const sub of await db.subscriptions(userId)) byUser.set(sub.user_id, [...(byUser.get(sub.user_id) || []), sub]);
+  return byUser;
 }
 
 export async function handle(request, env, fetchImpl = fetch, now = new Date()) {
@@ -367,26 +514,48 @@ export async function handle(request, env, fetchImpl = fetch, now = new Date()) 
     const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
     const input = await request.json().catch(() => ({}));
 
+    // Gmail の側からの呼び出し（メールを届けた直後）。合言葉で持ち主を確かめる
+    if (input && typeof input.mail_token === 'string') {
+      const owner = await db.mailOwner(input.mail_token);
+      if (!owner) return json({ error: '合言葉が違います' }, 403);
+      return json({ mode: 'mail', ...(await checkMails(db, vapid, env.url, owner, dateKey, now, fetchImpl)) });
+    }
+
     // ログイン中の本人からの呼び出し
     const userId = token ? await db.userFromToken(token) : null;
     if (userId) {
       // 通知を押して開いたページに、その回の報告を返す（送信はしない）
+      const times = (await db.times(userId)).get(userId) || { ...DEFAULT_TIMES };
       if (input && typeof input.view === 'string') {
         const match = input.view.match(/^(\d{4}-\d{2}-\d{2})-(morning|evening)$/);
         const report = match
-          ? await reportFor(db, userId, dateKey, match[2], slotWindow(match[1], match[2]))
-          : await reportFor(db, userId, dateKey, null, currentWindow(now));
+          ? await reportFor(db, userId, dateKey, match[2], slotWindow(match[1], match[2], times))
+          : await reportFor(db, userId, dateKey, null, currentWindow(now, times));
         return json({ mode: 'view', title: report.title, lines: report.lines, itemIds: report.itemIds });
       }
       // 「今すぐ試しに送る」
-      return json({ mode: 'test', ...(await deliver(db, vapid, env.url, dateKey, null, currentWindow(now), userId, fetchImpl)) });
+      const mine = (await subscribers(db, userId)).get(userId) || [];
+      return json({ mode: 'test', ...(await deliverTo(db, vapid, env.url, dateKey, null, currentWindow(now, times), userId, mine, fetchImpl)) });
     }
 
-    // 時刻の決まった報告。朝10時台・夕方17時台だけ、各回1度だけ送る
-    const slot = slotFor(hour);
-    if (!slot) return json({ mode: 'schedule', skipped: 'time' });
-    if (!(await db.claimSlot(`${dateKey}-${slot}`))) return json({ mode: 'schedule', skipped: 'already-sent' });
-    return json({ mode: 'schedule', slot, ...(await deliver(db, vapid, env.url, dateKey, slot, slotWindow(dateKey, slot), null, fetchImpl)) });
+    // 時刻の決まった報告。毎時呼ばれ、その「時」を選んでいる人にだけ送る。同じ時刻の回は1度だけ
+    const [byUser, allTimes] = await Promise.all([subscribers(db, null), db.times(null)]);
+    const due = [...byUser].map(([uid, subs]) => {
+      const times = allTimes.get(uid) || { ...DEFAULT_TIMES };
+      return { uid, subs, times, slot: slotFor(hour, times) };
+    }).filter((user) => user.slot);
+    if (!due.length) return json({ mode: 'schedule', skipped: 'time' });
+    if (!(await db.claimSlot(`${dateKey}-${String(hour).padStart(2, '0')}`))) return json({ mode: 'schedule', skipped: 'already-sent' });
+
+    let sent = 0;
+    let failed = 0;
+    for (const user of due) {
+      const result = await deliverTo(db, vapid, env.url, dateKey, user.slot, slotWindow(dateKey, user.slot, user.times), user.uid, user.subs, fetchImpl);
+      sent += result.sent;
+      failed += result.failed;
+    }
+    const slots = [...new Set(due.map((user) => user.slot))];
+    return json({ mode: 'schedule', slot: slots.length === 1 ? slots[0] : 'mixed', sent, failed });
   } catch (error) {
     console.error(error);
     return json({ error: String(error && error.message ? error.message : error) }, 500);

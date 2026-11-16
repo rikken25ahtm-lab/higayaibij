@@ -1,5 +1,5 @@
--- ひがやいびん：朝10時・夕方17時の通知に使うテーブルと、時刻の予約
--- Supabase の「SQL Editor」に貼り付けて、Run を1回押してください。
+-- ひがやいびん：朝と夕方の報告の通知に使うテーブルと、時刻の予約
+-- Supabase の「SQL Editor」に貼り付けて、Run を1回押してください。（何度 Run しても大丈夫です）
 -- （先に Edge Function「report」を作っておくこと。手順は README にあります）
 
 -- 通知を受け取る端末の登録。ログインした本人の分だけ、読み書きできる
@@ -86,12 +86,33 @@ create trigger items_log_event
   after insert or update or delete on public.items
   for each row execute function public.log_item_event();
 
--- 毎日 10:00 と 17:00（日本時間）に Edge Function を呼ぶ。
--- cron の時刻は世界標準時なので、9時間引いた 1:00 と 8:00 を指定している。
+-- 報告を受け取る時刻（日本時間の「時」）。人ごとに選べる。行がなければ、朝10時・夕方17時。
+-- null は、その回を受け取らない
+create table if not exists public.notify_settings (
+  user_id      uuid primary key default auth.uid() references auth.users (id) on delete cascade,
+  morning_hour smallint default 10 check (morning_hour between 0 and 23),
+  evening_hour smallint default 17 check (evening_hour between 0 and 23),
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.notify_settings enable row level security;
+
+drop policy if exists "自分の通知の時刻だけ" on public.notify_settings;
+create policy "自分の通知の時刻だけ" on public.notify_settings
+  for all to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+grant select, insert, update, delete on public.notify_settings to authenticated;
+
+-- 毎時0分に Edge Function を呼ぶ。Edge Function が、その時刻を選んでいる人にだけ報告を送る。
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
-select cron.schedule('higayaibin-morning', '0 1 * * *', $$
+-- 以前の予約（朝10時・夕方17時の2つ）があれば消す
+select cron.unschedule(jobid) from cron.job where jobname in ('higayaibin-morning', 'higayaibin-evening');
+
+select cron.schedule('higayaibin-hourly', '0 * * * *', $$
   select net.http_post(
     url := 'https://ngddtyyxfcmfzpjqcaco.supabase.co/functions/v1/report',
     headers := '{"Content-Type": "application/json"}'::jsonb,
@@ -99,10 +120,5 @@ select cron.schedule('higayaibin-morning', '0 1 * * *', $$
   );
 $$);
 
-select cron.schedule('higayaibin-evening', '0 8 * * *', $$
-  select net.http_post(
-    url := 'https://ngddtyyxfcmfzpjqcaco.supabase.co/functions/v1/report',
-    headers := '{"Content-Type": "application/json"}'::jsonb,
-    body := '{}'::jsonb
-  );
-$$);
+-- 追加した表を、ページからすぐ使えるようにする
+notify pgrst, 'reload schema';

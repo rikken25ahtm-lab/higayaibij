@@ -59,6 +59,7 @@
   <section class="home" id="home" hidden aria-labelledby="home-title">
     <h2 id="home-title">プロジェクト</h2>
     <p class="home-lead" id="home-lead"></p>
+    <p class="home-mail" id="home-mail" hidden></p>
     <ul class="projects" id="project-list"></ul>
     <form class="panel project-new" id="project-new" autocomplete="off">
       <label class="field">
@@ -205,6 +206,17 @@
     <section class="panel notify" id="notify" hidden aria-labelledby="notify-title">
       <h2 id="notify-title">通知</h2>
       <p id="notify-status" aria-live="polite">確認しています…</p>
+      <div class="notify-times" id="notify-times" hidden>
+        <label class="field">
+          <span>朝の報告</span>
+          <select id="notify-morning"></select>
+        </label>
+        <label class="field">
+          <span>夕方・夜の報告</span>
+          <select id="notify-evening"></select>
+        </label>
+        <p class="hint">時刻は日本時間です。変えると、次の回から新しい時刻に届きます。</p>
+      </div>
       <div class="notify-actions">
         <button type="button" class="btn primary" id="notify-on" hidden>通知を受け取る</button>
         <button type="button" class="btn" id="notify-test" hidden>今すぐ試しに送る</button>
@@ -219,6 +231,17 @@
         <button type="button" class="btn primary" id="maillink-create" hidden>合言葉を作る</button>
         <button type="button" class="btn small" id="maillink-off" hidden>連携をやめる</button>
       </div>
+      <form class="mail-settings" id="maillink-settings" hidden autocomplete="off">
+        <label class="field">
+          <span>見るラベルの名前（Gmail でこのラベルをつけたメールだけを見ます）</span>
+          <input name="label" type="text" maxlength="40" required>
+        </label>
+        <label class="field">
+          <span>大事な相手（1行に1つ。メールアドレス・@ より後ろ・名前の一部のどれでも。ここからのメールは、緊急として通知します）</span>
+          <textarea name="important" rows="3" placeholder="例：&#10;fudosan.example.com&#10;yamada@example.com"></textarea>
+        </label>
+        <button type="submit" class="btn">この設定を保存する</button>
+      </form>
       <div class="token-box" id="maillink-token-box" hidden>
         <label class="field">
           <span>合言葉（表示されるのは今だけです。人には見せないでください）</span>

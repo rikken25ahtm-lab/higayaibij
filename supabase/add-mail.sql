@@ -3,7 +3,7 @@
 --
 -- 流れ：Gmail の側で動く小さなプログラム（google/mail.gs）が、ラベルのついたメールを見つけ、
 -- 添付をドライブに保存してから、ここの受け取り口（receive_mail）に「候補」として届ける。
--- 届いた候補は、ページでダイくんが確認してから、やることに追加する。
+-- 届いた候補は、ページで本人が確認してから、やることに追加する。
 
 -- メールから作った候補。ログインした本人の分だけ読める
 create table if not exists public.mail_candidates (
@@ -22,6 +22,11 @@ create table if not exists public.mail_candidates (
   unique (user_id, gmail_id)
 );
 create index if not exists mail_candidates_user_created on public.mail_candidates (user_id, created_at);
+
+-- 緊急かどうか。判定は、届いた直後に通知のプログラム（report）が行う
+alter table public.mail_candidates add column if not exists urgent        boolean not null default false;
+alter table public.mail_candidates add column if not exists urgent_reason text not null default '';   -- 例：「至急」とある
+alter table public.mail_candidates add column if not exists checked_at    timestamptz;                 -- 判定を済ませた時刻
 
 alter table public.mail_candidates enable row level security;
 
@@ -49,6 +54,10 @@ create table if not exists public.mail_links (
   last_seen_at timestamptz                                      -- Gmail の側から最後に確認が来た時刻
 );
 
+-- 本人が決める設定：見るラベルの名前と、「大事な相手」（その人からのメールは緊急として通知する）
+alter table public.mail_links add column if not exists label     text   not null default 'ひがやいびん' check (char_length(label) between 1 and 40);
+alter table public.mail_links add column if not exists important text[] not null default '{}';
+
 alter table public.mail_links enable row level security;
 
 drop policy if exists "自分の連携の状態を読む" on public.mail_links;
@@ -61,9 +70,16 @@ create policy "自分の連携をやめる" on public.mail_links
   for delete to authenticated
   using (auth.uid() = user_id);
 
--- 照合用の値は、ページからも読めないようにする
+drop policy if exists "自分の連携の設定を変える" on public.mail_links;
+create policy "自分の連携の設定を変える" on public.mail_links
+  for update to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- 照合用の値は、ページからも読めないようにする。ページから変えられるのは、ラベルの名前と大事な相手だけ
 revoke all on public.mail_links from anon, authenticated;
-grant select (user_id, created_at, last_seen_at) on public.mail_links to authenticated;
+grant select (user_id, created_at, last_seen_at, label, important) on public.mail_links to authenticated;
+grant update (label, important) on public.mail_links to authenticated;
 grant delete on public.mail_links to authenticated;
 
 -- 合言葉を作る（ログイン中の本人だけ）。作り直すと、前の合言葉は使えなくなる。
@@ -98,6 +114,16 @@ begin
     raise exception '合言葉が違います' using errcode = '28000';
   end if;
   return v_user;
+end;
+$fn$;
+
+-- Gmail の側から：本人が決めた設定を読む（どのラベルを見るか）
+create or replace function public.mail_settings(p_token text) returns jsonb
+language plpgsql security definer set search_path = public as $fn$
+declare
+  v_user uuid := mail_owner(p_token);
+begin
+  return (select jsonb_build_object('label', label) from mail_links where user_id = v_user);
 end;
 $fn$;
 
@@ -158,8 +184,14 @@ $fn$;
 -- 届ける側（Gmail のプログラム）はログインしないので、合言葉を持っていれば呼べるようにする。
 revoke all on function public.create_mail_token() from public, anon, authenticated;
 revoke all on function public.mail_owner(text) from public, anon, authenticated;
+revoke all on function public.mail_settings(text) from public, anon, authenticated;
 revoke all on function public.mail_unknown(text, text[]) from public, anon, authenticated;
 revoke all on function public.receive_mail(text, jsonb) from public, anon, authenticated;
 grant execute on function public.create_mail_token() to authenticated;
+grant execute on function public.mail_owner(text) to service_role; -- 通知のプログラム（report）が、合言葉から持ち主を確かめる
+grant execute on function public.mail_settings(text) to anon, authenticated;
 grant execute on function public.mail_unknown(text, text[]) to anon, authenticated;
 grant execute on function public.receive_mail(text, jsonb) to anon, authenticated;
+
+-- 追加した表・列・関数を、すぐ使えるようにする
+notify pgrst, 'reload schema';

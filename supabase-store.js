@@ -211,6 +211,17 @@
         unwrap(await subscriptions().delete().eq('endpoint', endpoint));
       },
 
+      // 報告を受け取る時刻（日本時間の「時」。null は受け取らない）。準備がまだ（表がない）なら null
+      async notifyTimes() {
+        const { data, error } = await client.from('notify_settings').select('morning_hour,evening_hour').maybeSingle();
+        if (error) return null;
+        return data ? { morning: data.morning_hour, evening: data.evening_hour } : { morning: 10, evening: 17 };
+      },
+
+      async saveNotifyTimes({ morning, evening }) {
+        unwrap(await client.from('notify_settings').upsert({ morning_hour: morning, evening_hour: evening, updated_at: new Date().toISOString() }));
+      },
+
       // ログイン中の本人の端末に、今の内容をすぐ送る
       sendTestReport() {
         return postReport({});
@@ -237,7 +248,16 @@
           mailUrl: r.mail_url || '',
           attachments: r.attachments || [],
           receivedAt: r.received_at,
+          urgent: Boolean(r.urgent),
+          urgentReason: r.urgent_reason || '',
         }));
+      },
+
+      // これまでに「やることに追加」した候補（新しい順）。振り分け先の提案に使う
+      async mailHistory() {
+        const { data, error } = await client.from('mail_candidates').select('sender,item_id').eq('status', 'added').not('item_id', 'is', null).order('created_at', { ascending: false }).limit(200);
+        if (error) return [];
+        return data.map((r) => ({ sender: r.sender || '', itemId: r.item_id }));
       },
 
       // 候補を片づける。status は 'added'（追加した）/ 'dismissed'（追加しない）/ 'new'（元に戻す）
@@ -247,9 +267,17 @@
 
       // 連携の状態。準備がまだ（SQL を実行していない）なら null
       async mailLink() {
-        const { data, error } = await client.from('mail_links').select('created_at,last_seen_at').maybeSingle();
+        const { data, error } = await client.from('mail_links').select('created_at,last_seen_at,label,important').maybeSingle();
         if (error) return null;
-        return data ? { linked: true, createdAt: data.created_at, lastSeenAt: data.last_seen_at } : { linked: false };
+        return data
+          ? { linked: true, createdAt: data.created_at, lastSeenAt: data.last_seen_at, label: data.label || 'ひがやいびん', important: data.important || [] }
+          : { linked: false };
+      },
+
+      // 見るラベルの名前と、大事な相手（その人からのメールは、緊急として通知する）
+      async saveMailSettings({ label, important }) {
+        const { data } = await client.auth.getSession();
+        unwrap(await client.from('mail_links').update({ label, important }).eq('user_id', data.session.user.id));
       },
 
       // 合言葉を作る（作り直すと、前の合言葉は使えなくなる）

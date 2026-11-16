@@ -482,3 +482,16 @@ section.near { margin-bottom: 24px; }
 .spoken { display: grid; gap: 2px; margin-top: 4px; overflow-wrap: anywhere; }
 .spoken li span { display: inline-block; min-width: 4.2em; margin-right: 6px; color: var(--muted); font-size: 0.78rem; }
 .quick-hint .warn { margin-top: 4px; color: var(--overdue); }
+
+/* ---- メールの候補：緊急・入れ先の提案 ---- */
+.item.mail.urgent { border-left-color: var(--overdue); }
+.urgent-tag { padding: 0 9px; border-radius: 999px; background: var(--overdue); color: #fff; font-weight: bold; }
+.urgent-reason { color: var(--overdue); font-weight: bold; }
+.suggest { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: var(--soon-bg); font-size: 0.88rem; overflow-wrap: anywhere; }
+.suggest span { margin-right: 8px; color: var(--muted); font-size: 0.78rem; }
+.suggest small { display: block; color: var(--muted); font-size: 0.78rem; }
+.home-mail { margin-bottom: 16px; padding: 10px 12px; border-radius: 10px; background: var(--soon-bg); font-size: 0.9rem; }
+.home-mail.urgent { background: var(--overdue-bg); color: var(--overdue); font-weight: bold; }
+.mail-settings { display: grid; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.notify-times { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.notify-times .hint { grid-column: 1 / -1; margin: 0; }

@@ -5,7 +5,7 @@
     toDateKey, dueLabel, extractDue, parseSpoken, matchCategory, sortOpen, sortDone, summarize, parsePaste, PROGRESS_CHOICES,
     senderName, cleanSubject, safeLinks, mergeLinks, candidateLinks, mailTime, categoriesOf, inCategory,
     dueColor, isNear, REPEAT_CHOICES, repeatLabel, nextDue, safeNotes, timeline, fileKind,
-    itemText, mailText, matchesQuery, frequentWords,
+    itemText, mailText, matchesQuery, frequentWords, suggestPlace,
   } = window.Logic;
   const config = window.HIGAYAIBIN_CONFIG || {};
   const Store =
@@ -25,6 +25,7 @@
   let projectLoaded = false; // 最後に使ったプロジェクトを、もう読んだか
   let projectEditingId = null; // 最初の画面で、名前を変えているプロジェクト
   let mails = []; // メールからの候補（まだ片づけていないもの）
+  let mailHistory = []; // これまでに追加した候補（振り分け先の提案に使う）
   let editingId = null;
   let mailEditingId = null; // 「やることに追加」を開いている候補
   let toastTimer = null;
@@ -68,8 +69,8 @@
   }
 
   // カテゴリの選択肢を入れる。いま選んでいる値は保つ
-  function fillCategories(select, value) {
-    const known = categoriesOf(items);
+  function fillCategories(select, value, source) {
+    const known = categoriesOf(source || items);
     const list = value && value !== NEW_CATEGORY && !known.includes(value) ? [value, ...known] : known;
     select.replaceChildren(
       el('option', { value: '' }, '（なし）'),
@@ -93,10 +94,10 @@
     sync();
   }
 
-  function categoryField(value) {
+  function categoryField(value, source) {
     const select = el('select', { name: 'category' });
     const input = el('input', { name: 'categoryNew', type: 'text', maxlength: 50, placeholder: '例：家のこと', hidden: true });
-    fillCategories(select, value);
+    fillCategories(select, value, source);
     wireCategory(select, input);
     return el('label', { class: 'field' }, el('span', null, 'カテゴリ'), select, input);
   }
@@ -127,11 +128,14 @@
   const inProject = (item, id) => (item.projectId || null) === (id || null);
 
   async function reload() {
-    [allItems, mails, projects] = await Promise.all([
+    [allItems, mails, projects, mailHistory] = await Promise.all([
       Store.list(),
       Store.listCandidates ? Store.listCandidates() : [],
       Store.listProjects(),
+      Store.mailHistory ? Store.mailHistory() : [],
     ]);
+    // 緊急のものを上に（その中では新しい順のまま）
+    mails = [...mails.filter((m) => m.urgent), ...mails.filter((m) => !m.urgent)];
     if (!mails.some((m) => m.id === mailEditingId)) mailEditingId = null;
     if (projects) {
       // 一度閉じても、最後に使ったプロジェクトを開く
@@ -215,6 +219,10 @@
       ...projects.map((p) => card(p.id, p.name)),
       ...(loose ? [card(null, 'プロジェクトなし')] : [])
     );
+    const urgentCount = mails.filter((m) => m.urgent).length;
+    $('home-mail').hidden = mails.length === 0;
+    $('home-mail').textContent = `メールからの候補が ${mails.length}件あります${urgentCount ? `（うち緊急 ${urgentCount}件）` : ''}。プロジェクトを開くと確認できます。`;
+    $('home-mail').classList.toggle('urgent', urgentCount > 0);
     $('home-lead').textContent = projects.length
       ? 'プロジェクトを押すと、その中のやることが開きます。'
       : 'やることを入れる箱（プロジェクト）を作りましょう。あとから増やせます。';
@@ -350,7 +358,7 @@
 
     $('mail').hidden = shownMails.length === 0;
     $('mail-count').textContent = shownMails.length ? `${shownMails.length}件` : '';
-    $('mail-list').replaceChildren(...shownMails.map((mail) => (mail.id === mailEditingId ? renderMailEditor(mail, sortOpen(items.filter((i) => i.status !== 'done'))) : renderMail(mail))));
+    $('mail-list').replaceChildren(...shownMails.map((mail) => (mail.id === mailEditingId ? renderMailEditor(mail) : renderMail(mail))));
 
     renderSummary(summarize(items, today));
     renderAssignees();
@@ -625,7 +633,7 @@
     due.value = values.due || '';
     return [
       field('内容', content),
-      categoryField(values.category || ''),
+      categoryField(values.category || '', values.categoryItems),
       field('必要な対応', action),
       field('進捗', progress),
       el('div', { class: 'field-row' }, field('誰に任せるか', assignee), field('期限', due)),
@@ -733,19 +741,40 @@
   // ---- メールからの候補 ----
   function mailHead(mail) {
     return [
-      el('p', { class: 'meta' }, el('span', { class: 'sender' }, senderName(mail.sender) || '（差出人なし）'), el('span', { class: 'assignee' }, mailTime(mail.receivedAt))),
+      el(
+        'p',
+        { class: 'meta' },
+        mail.urgent ? el('span', { class: 'urgent-tag' }, '緊急') : null,
+        el('span', { class: 'sender' }, senderName(mail.sender) || '（差出人なし）'),
+        el('span', { class: 'assignee' }, mailTime(mail.receivedAt)),
+        mail.urgent && mail.urgentReason ? el('span', { class: 'urgent-reason' }, mail.urgentReason) : null
+      ),
       el('p', { class: 'content' }, mail.subject || '（件名なし）'),
     ];
   }
 
+  // 振り分け先の提案を、ことばにする
+  function placeText(place) {
+    if (!place) return '';
+    const item = place.itemId && allItems.find((i) => i.id === place.itemId);
+    if (item) return `「${item.content}」に足す`;
+    const parts = [];
+    if (projects && (place.projectId || projects.length)) parts.push(`プロジェクト「${projectName(place.projectId)}」`);
+    if (place.category) parts.push(`カテゴリ「${place.category}」`);
+    return parts.join('・');
+  }
+
   function renderMail(mail) {
+    const place = suggestPlace(mail, mailHistory, allItems);
+    const text = placeText(place);
     return el(
       'li',
-      { class: 'item mail', 'data-id': mail.id },
+      { class: `item mail${mail.urgent ? ' urgent' : ''}`, 'data-id': mail.id },
       el(
         'div',
         { class: 'body' },
         ...mailHead(mail),
+        text ? el('p', { class: 'suggest' }, el('span', null, '入れ先の提案'), text, el('small', null, place.reason)) : null,
         mail.excerpt ? el('details', { class: 'excerpt' }, el('summary', null, '本文を見る'), el('p', null, mail.excerpt)) : null,
         renderLinks(candidateLinks(mail))
       ),
@@ -758,23 +787,58 @@
     );
   }
 
-  // 候補を確認して、やることに追加する。新しい項目にするか、いまある項目にリンクだけつけるかを選べる
-  function renderMailEditor(mail, openItems) {
+  // 候補を確認して、やることに追加する。新しい項目にするか、いまある項目にリンクだけつけるかを選べる。
+  // 入れ先（プロジェクト・カテゴリ・いまある項目）は、提案を最初から選んでおく。変えるのは自由
+  function renderMailEditor(mail) {
     const links = candidateLinks(mail);
+    const place = suggestPlace(mail, mailHistory, allItems);
+    const openItems = sortOpen(allItems.filter((i) => i.status !== 'done'));
+    const label = (item) => `「${item.content}」につける${projects && projects.length ? `（${projectName(item.projectId || null)}）` : ''}`;
     const target = el(
       'select',
       { name: 'target' },
       el('option', { value: '' }, '新しいやることにする'),
-      ...openItems.map((item) => el('option', { value: item.id }, `「${item.content}」につける`))
+      ...openItems.map((item) => el('option', { value: item.id }, label(item)))
     );
-    const fields = el('div', { class: 'more' }, ...itemFields({ content: cleanSubject(mail.subject) }));
+    if (place && place.itemId && openItems.some((i) => i.id === place.itemId)) target.value = place.itemId;
+
+    // 新しい項目を入れるプロジェクト（提案があればそこ、なければ開いているプロジェクト）
+    const startProject = place ? place.projectId : currentProject || null;
+    const projectSelect = projects && projects.length
+      ? el(
+          'select',
+          { 'aria-label': 'プロジェクト' },
+          ...(allItems.some((i) => inProject(i, null)) || !startProject ? [el('option', { value: '' }, 'プロジェクトなし')] : []),
+          ...projects.map((p) => el('option', { value: p.id }, p.name))
+        )
+      : null;
+    if (projectSelect) projectSelect.value = startProject || '';
+    const chosenProject = () => (projectSelect ? projectSelect.value || null : projects ? currentProject || null : null);
+    const projectItems = () => (projects ? allItems.filter((i) => inProject(i, chosenProject())) : allItems);
+
+    const fields = el(
+      'div',
+      { class: 'more' },
+      projectSelect ? field('プロジェクト', projectSelect) : null,
+      ...itemFields({ content: cleanSubject(mail.subject), category: place ? place.category : '', categoryItems: projectItems() })
+    );
+    // プロジェクトを変えたら、カテゴリの選択肢もそのプロジェクトのものにする
+    if (projectSelect) {
+      projectSelect.addEventListener('change', () => {
+        const select = fields.querySelector('select[name="category"]');
+        fillCategories(select, '', projectItems());
+        select.dispatchEvent(new Event('change'));
+      });
+    }
     const submit = el('button', { type: 'submit', class: 'btn primary' }, '追加する');
-    target.addEventListener('change', () => {
+    const sync = () => {
       const existing = Boolean(target.value);
       fields.hidden = existing;
       fields.querySelector('[name="content"]').required = !existing;
       submit.textContent = existing ? 'リンクをつける' : '追加する';
-    });
+    };
+    target.addEventListener('change', sync);
+    sync();
 
     const form = el(
       'form',
@@ -785,7 +849,7 @@
           e.preventDefault();
           submit.disabled = true;
           try {
-            await addFromMail(mail, target.value, readForm(form), links);
+            await addFromMail(mail, target.value, readForm(form), links, chosenProject());
           } finally {
             submit.disabled = false;
           }
@@ -795,6 +859,7 @@
         },
       },
       ...mailHead(mail),
+      place ? el('p', { class: 'suggest' }, el('span', null, '入れ先の提案'), placeText(place), el('small', null, `${place.reason}。下で変えられます。`)) : null,
       openItems.length ? field('追加のしかた', target) : null,
       fields,
       links.length ? el('div', { class: 'field' }, el('span', null, '項目につくリンク'), renderLinks(links)) : null,
@@ -820,11 +885,11 @@
     render();
   }
 
-  async function addFromMail(mail, targetId, fields, links) {
+  async function addFromMail(mail, targetId, fields, links, projectId) {
     let undo;
     let message;
     if (targetId) {
-      const item = items.find((i) => i.id === targetId);
+      const item = allItems.find((i) => i.id === targetId);
       if (!item) return;
       const before = item.attachments || [];
       await Store.update(item.id, { attachments: mergeLinks(before, links) });
@@ -836,7 +901,7 @@
       };
     } else {
       if (!fields.content) return;
-      const item = await addItem({ ...fields, attachments: links });
+      const item = await Store.add({ ...fields, attachments: links, projectId: projects ? projectId || null : null });
       await Store.resolveCandidate(mail.id, 'added', item.id);
       message = 'やることに追加しました';
       undo = async () => {

@@ -148,5 +148,6 @@ test('キーワードをつけて話した文を、欄に分ける', () => {
   assert.equal(L.parseSpoken('見積もりを頼む', TODAY), null);
   assert.equal(L.parseSpoken('内容', TODAY), null);
   assert.equal(L.matchCategory('物件', ['① 物件', '② 内装']), '① 物件');
-  assert.equal(L.matchCategory('新しい分類', ['① 物件']), '新しい分類');
+  assert.equal(L.matchCategory('新しい分類', ['① 物件']), ''); // 新しいカテゴリは作らない
+  assert.equal(L.matchCategory('物件', []), '');
 });

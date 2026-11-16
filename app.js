@@ -963,6 +963,7 @@
         row('期限', autoDue.due ? dueLabel(autoDue.due, today) : ''),
         row('繰り返し', repeatLabel(autoDue.repeat))
       ),
+      ...(autoDue.category && !category ? [el('p', { class: 'warn' }, `カテゴリ「${autoDue.category}」に合うものがないので、カテゴリは入れません。追加したあとで選べます。`)] : []),
       ...(autoDue.dueUnreadable ? [el('p', { class: 'warn' }, `期限「${autoDue.dueText}」は日付として読めませんでした。期限の欄で選んでください。`)] : [])
     );
   }
@@ -980,7 +981,9 @@
       for (const key of ['action', 'progress', 'assignee', 'repeat']) {
         if (autoDue[key]) fields[key] = autoDue[key];
       }
-      if (autoDue.category) fields.category = matchCategory(autoDue.category, categoriesOf(items));
+      // カテゴリは、いまあるものに合うときだけ入れる（合わなければ、フォームで選んだまま）
+      const spokenCategory = autoDue.category ? matchCategory(autoDue.category, categoriesOf(items)) : '';
+      if (spokenCategory) fields.category = spokenCategory;
     } else if (autoDue && fields.due === autoDue.due) {
       // 読み取った期限をそのまま使うときは、内容から「金曜までに」を外す
       fields.content = autoDue.content;

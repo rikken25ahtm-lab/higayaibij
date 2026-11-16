@@ -302,12 +302,13 @@
     };
   }
 
-  // 話したカテゴリの名前を、いまあるカテゴリに寄せる（「物件」→「① 物件」）。なければ、話した名前のまま
+  // 話したカテゴリの名前を、いまあるカテゴリに寄せる（「物件」→「① 物件」）。
+  // 合うものがなければ ''（新しいカテゴリは作らない。カテゴリなしで追加して、あとから自分で選ぶ）
   function matchCategory(spoken, categories) {
     const key = (v) => normalizeText(v).replace(/[^\p{L}\p{N}]/gu, '').replace(/^[\d①-⑳]+/, '');
     const want = key(spoken);
     if (!want) return '';
-    return categories.find((c) => key(c) === want) || categories.find((c) => key(c).includes(want) || want.includes(key(c)) && key(c)) || spoken;
+    return categories.find((c) => key(c) === want) || categories.find((c) => key(c).includes(want) || want.includes(key(c)) && key(c)) || '';
   }
 
   // ---- カテゴリ ----

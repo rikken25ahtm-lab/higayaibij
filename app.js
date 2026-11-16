@@ -324,12 +324,15 @@
     const rest = searching ? items.filter(hit) : items.filter((i) => !isNear(i, today) && inCategory(i, activeCategory));
     const open = sortOpen(rest.filter((i) => i.status !== 'done'));
     const done = sortDone(rest.filter((i) => i.status === 'done'));
-    const shownMails = searching ? mails.filter((m) => matchesQuery(mailText(m), query)) : mails;
+    // 緊急のメールの候補は、「直近」に入れる（期限の近いやることと同じ場所で気づけるように）。ほかの候補は「メールからの候補」に
+    const urgentMails = searching ? [] : mails.filter((m) => m.urgent);
+    const shownMails = searching ? mails.filter((m) => matchesQuery(mailText(m), query)) : mails.filter((m) => !m.urgent);
+    const mailNode = (mail) => (mail.id === mailEditingId ? renderMailEditor(mail) : renderMail(mail));
     renderCategories(categories, today);
 
-    $('near').hidden = near.length === 0;
-    $('near-count').textContent = `${near.length}件`;
-    $('near-list').replaceChildren(...near.map((item) => renderItem(item, today, true)));
+    $('near').hidden = near.length + urgentMails.length === 0;
+    $('near-count').textContent = `${near.length + urgentMails.length}件`;
+    $('near-list').replaceChildren(...urgentMails.map(mailNode), ...near.map((item) => renderItem(item, today, true)));
     openList.replaceChildren(...open.map((item) => renderItem(item, today, searching)));
     doneList.replaceChildren(...done.map((item) => renderItem(item, today, searching)));
 
@@ -358,7 +361,7 @@
 
     $('mail').hidden = shownMails.length === 0;
     $('mail-count').textContent = shownMails.length ? `${shownMails.length}件` : '';
-    $('mail-list').replaceChildren(...shownMails.map((mail) => (mail.id === mailEditingId ? renderMailEditor(mail) : renderMail(mail))));
+    $('mail-list').replaceChildren(...shownMails.map(mailNode));
 
     renderSummary(summarize(items, today));
     renderAssignees();
@@ -744,7 +747,7 @@
       el(
         'p',
         { class: 'meta' },
-        mail.urgent ? el('span', { class: 'urgent-tag' }, '緊急') : null,
+        mail.urgent ? el('span', { class: 'urgent-tag' }, '緊急のメール') : null,
         el('span', { class: 'sender' }, senderName(mail.sender) || '（差出人なし）'),
         el('span', { class: 'assignee' }, mailTime(mail.receivedAt)),
         mail.urgent && mail.urgentReason ? el('span', { class: 'urgent-reason' }, mail.urgentReason) : null

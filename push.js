@@ -158,7 +158,8 @@
         // 緊急のメールの通知から開いたとき：メールからの候補のところへ
         if (view === 'mail') {
           await markItems([]);
-          const target = document.getElementById('mail').hidden ? document.getElementById('home-mail') : document.getElementById('mail');
+          // 緊急のメールは「直近」に出ている（最初の画面にいるときは、候補のお知らせ）
+          const target = [document.getElementById('near'), document.getElementById('mail'), document.getElementById('home-mail')].find((node) => node && !node.hidden && node.offsetParent !== null);
           if (target && !target.hidden) target.scrollIntoView({ block: 'start' });
           return;
         }
